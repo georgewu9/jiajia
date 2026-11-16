@@ -6,6 +6,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../../../app/theme.dart';
+import '../../../diag/boot_log.dart' show bootLog;
 import '../floorplan/state/editor_doc.dart';
 
 /// 3D 浏览页：Three.js 跑在本地 WebView（离线资源 assets/web/），
@@ -33,15 +34,18 @@ class _Viewer3dPageState extends ConsumerState<Viewer3dPage> {
     if (existing != null) return existing;
     WebViewController c;
     try {
+      bootLog.line('webview-creating');
       c = WebViewController()
         ..addJavaScriptChannel('dart', onMessageReceived: _onJsMessage);
       (c.platform as AndroidWebViewController)
           .setJavaScriptMode(JavaScriptMode.unrestricted);
       c.loadFlutterAsset('web/viewer.html');
-    } catch (_) {
+    } catch (e) {
+      bootLog.error('webview-failed: $e');
       return null; // 平台不可用（widget 测试环境）
     }
     _ctrl = c;
+    bootLog.line('webview-created');
     return c;
   }
   bool _jsReady = false;

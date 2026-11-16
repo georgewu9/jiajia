@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme.dart';
+import '../../../diag/boot_log.dart' show bootLog;
 import '../domain/floor_plan.dart';
 import '../state/editor_doc.dart';
 
@@ -68,6 +69,12 @@ class FloorplanEditorPage extends ConsumerStatefulWidget {
 class _FloorplanEditorPageState
     extends ConsumerState<FloorplanEditorPage> {
   EditorTool _tool = EditorTool.wall;
+
+  @override
+  void initState() {
+    super.initState();
+    bootLog.line('editor-init');
+  }
   FurnitureKind _furnKind = FurnitureKind.sofa;
   _Sel? _sel;
   Vec2? _wallStart;
