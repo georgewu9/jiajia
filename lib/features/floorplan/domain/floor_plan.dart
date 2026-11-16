@@ -24,7 +24,10 @@ class Vec2 {
 
   double distanceTo(Vec2 o) => (this - o).length;
 
-  Map<String, num> toJson() => {'x': x.roundToFraction(1000), 'y': y.roundToFraction(1000)};
+  Map<String, num> toJson() => {
+    'x': x.roundToFraction(1000),
+    'y': y.roundToFraction(1000),
+  };
   static Vec2 fromJson(Map<String, num> j) =>
       Vec2((j['x'] as num).toDouble(), (j['y'] as num).toDouble());
 }
@@ -41,16 +44,25 @@ class Wall {
   double thickness;
   double height;
 
-  Wall({required this.id, required this.a, required this.b, this.thickness = 0.24, this.height = 2.8});
+  Wall({
+    required this.id,
+    required this.a,
+    required this.b,
+    this.thickness = 0.24,
+    this.height = 2.8,
+  });
 
   double get length => a.distanceTo(b);
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'ax': a.toJson()['x'], 'ay': a.toJson()['y'],
-        'bx': b.toJson()['x'], 'by': b.toJson()['y'],
-        't': thickness, 'h': height,
-      };
+    'id': id,
+    'ax': a.toJson()['x'],
+    'ay': a.toJson()['y'],
+    'bx': b.toJson()['x'],
+    'by': b.toJson()['y'],
+    't': thickness,
+    'h': height,
+  };
 }
 
 enum OpeningKind { door, window }
@@ -60,24 +72,24 @@ enum DoorType { doorway, single, double, sliding }
 
 extension DoorTypeX on DoorType {
   String get label => switch (this) {
-        DoorType.doorway => '门洞',
-        DoorType.single => '单开门',
-        DoorType.double => '双开门',
-        DoorType.sliding => '移门',
-      };
+    DoorType.doorway => '门洞',
+    DoorType.single => '单开门',
+    DoorType.double => '双开门',
+    DoorType.sliding => '移门',
+  };
 
   /// 默认宽（mm）。双开门 1500，移门 1000，其余 900。
   int get defaultWidthMm => switch (this) {
-        DoorType.double => 1500,
-        DoorType.sliding => 1000,
-        _ => 900,
-      };
+    DoorType.double => 1500,
+    DoorType.sliding => 1000,
+    _ => 900,
+  };
 
   /// 默认高（mm）。
   int get defaultHeightMm => switch (this) {
-        DoorType.double => 2100,
-        _ => 2000,
-      };
+    DoorType.double => 2100,
+    _ => 2000,
+  };
 }
 
 /// mm <-> m 换算（UI 一律 mm，模型一律 m）。
@@ -104,8 +116,9 @@ class Opening {
     this.sill = 0,
     this.doorType = DoorType.single,
     double? height,
-  }) : height = height ??
-          (kind == OpeningKind.window ? 1.5 : doorType.defaultHeightMm / 1000);
+  }) : height =
+           height ??
+           (kind == OpeningKind.window ? 1.5 : doorType.defaultHeightMm / 1000);
 
   String get label {
     final w = toMm(width), h = toMm(height);
@@ -117,15 +130,15 @@ class Opening {
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'wall': wallId,
-        'kind': kind.name,
-        'dt': doorType.name,
-        'off': offset.roundToFraction(100),
-        'w': width,
-        'sill': sill,
-        'ht': height,
-      };
+    'id': id,
+    'wall': wallId,
+    'kind': kind.name,
+    'dt': doorType.name,
+    'off': offset.roundToFraction(100),
+    'w': width,
+    'sill': sill,
+    'ht': height,
+  };
 }
 
 /// 家具目录（MVP 用占位体素：w×d  footprint + 3D 盒高/色；后续换 glTF）。
@@ -150,6 +163,7 @@ enum FurnitureKind {
   coffee,
   shoe,
   shelf,
+
   /// 原 app 素材模型（OBJ/MTL，见 ModelAssets）；2D 占地由 item.footprint 决定。
   asset,
 }
@@ -208,16 +222,26 @@ class FurnitureCatalog {
 
   static String labelOf(FurnitureKind k) {
     const names = {
-      FurnitureKind.sofa: '沙发', FurnitureKind.bed: '床',
-      FurnitureKind.table: '餐桌', FurnitureKind.chair: '椅',
-      FurnitureKind.wardrobe: '衣柜', FurnitureKind.tv: '电视柜',
-      FurnitureKind.plant: '绿植', FurnitureKind.desk: '书桌',
-      FurnitureKind.stool: '凳子', FurnitureKind.fridge: '冰箱',
-      FurnitureKind.washer: '洗衣机', FurnitureKind.heater: '热水器',
-      FurnitureKind.stove: '燃气灶', FurnitureKind.hood: '烟机',
-      FurnitureKind.sink: '水槽', FurnitureKind.microwave: '微波炉',
-      FurnitureKind.oven: '烤箱', FurnitureKind.coffee: '茶几',
-      FurnitureKind.shoe: '鞋柜', FurnitureKind.shelf: '置物架',
+      FurnitureKind.sofa: '沙发',
+      FurnitureKind.bed: '床',
+      FurnitureKind.table: '餐桌',
+      FurnitureKind.chair: '椅',
+      FurnitureKind.wardrobe: '衣柜',
+      FurnitureKind.tv: '电视柜',
+      FurnitureKind.plant: '绿植',
+      FurnitureKind.desk: '书桌',
+      FurnitureKind.stool: '凳子',
+      FurnitureKind.fridge: '冰箱',
+      FurnitureKind.washer: '洗衣机',
+      FurnitureKind.heater: '热水器',
+      FurnitureKind.stove: '燃气灶',
+      FurnitureKind.hood: '烟机',
+      FurnitureKind.sink: '水槽',
+      FurnitureKind.microwave: '微波炉',
+      FurnitureKind.oven: '烤箱',
+      FurnitureKind.coffee: '茶几',
+      FurnitureKind.shoe: '鞋柜',
+      FurnitureKind.shelf: '置物架',
       FurnitureKind.asset: '素材',
     };
     return names[k]!;
@@ -231,12 +255,13 @@ class FurnitureItem {
   double rotationDeg; // 绕 Z 轴，度
   final String? modelId; // 原 app 素材模型 id（OBJ/MTL，见 ModelAssets）；null=占位盒
 
-  FurnitureItem(
-      {required this.id,
-      required this.kind,
-      required this.pos,
-      this.rotationDeg = 0,
-      this.modelId});
+  FurnitureItem({
+    required this.id,
+    required this.kind,
+    required this.pos,
+    this.rotationDeg = 0,
+    this.modelId,
+  });
 
   /// 2D 占地（w×d，米）：素材模型用其归一化占地，否则占位盒。
   (double, double) get footprint {
@@ -247,13 +272,13 @@ class FurnitureItem {
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'kind': kind.name,
-        if (modelId != null) 'model': modelId,
-        'x': pos.toJson()['x'],
-        'y': pos.toJson()['y'],
-        'rot': rotationDeg.round(),
-      };
+    'id': id,
+    'kind': kind.name,
+    if (modelId != null) 'model': modelId,
+    'x': pos.toJson()['x'],
+    'y': pos.toJson()['y'],
+    'rot': rotationDeg.round(),
+  };
 }
 
 /// 户型图：墙 + 开洞 + 家具。
@@ -281,9 +306,9 @@ class FloorPlan {
   /// 仅编辑器内部用：从 JSON 恢复（drift 持久化 M4 再换结构化表）。
   static FloorPlan fromJsonString(String s) {
     final j = jsonDecode(s) as Map<String, dynamic>;
-    final p = FloorPlan()
-      ..name = (j['name'] as String?) ?? '户型';
-    for (final w in (j['walls'] as List<dynamic>).cast<Map<String, dynamic>>()) {
+    final p = FloorPlan()..name = (j['name'] as String?) ?? '户型';
+    for (final w
+        in (j['walls'] as List<dynamic>).cast<Map<String, dynamic>>()) {
       final wall = Wall(
         id: w['id'] as String,
         a: Vec2((w['ax'] as num).toDouble(), (w['ay'] as num).toDouble()),
@@ -294,9 +319,12 @@ class FloorPlan {
       p.walls[wall.id] = wall;
       p._seq = p.maxSeq(p._seq, wall.id, 'w');
     }
-    for (final o in (j['openings'] as List<dynamic>).cast<Map<String, dynamic>>()) {
-      final kind = OpeningKind.values.firstWhere((k) => k.name == o['kind'],
-          orElse: () => OpeningKind.door);
+    for (final o
+        in (j['openings'] as List<dynamic>).cast<Map<String, dynamic>>()) {
+      final kind = OpeningKind.values.firstWhere(
+        (k) => k.name == o['kind'],
+        orElse: () => OpeningKind.door,
+      );
       DoorType dt;
       try {
         dt = DoorType.values.firstWhere((d) => d.name == o['dt']);
@@ -315,7 +343,8 @@ class FloorPlan {
       );
       p._seq = p.maxSeq(p._seq, o['id'] as String, 'o');
     }
-    for (final i in (j['items'] as List<dynamic>).cast<Map<String, dynamic>>()) {
+    for (final i
+        in (j['items'] as List<dynamic>).cast<Map<String, dynamic>>()) {
       p.items[i['id'] as String] = FurnitureItem(
         id: i['id'] as String,
         kind: FurnitureKind.values.firstWhere((k) => k.name == i['kind']),
@@ -335,6 +364,42 @@ class FloorPlan {
     return n >= cur ? n + 1 : cur;
   }
 
+  /// 一键建房间：4 面墙围合矩形（at=左上角，世界坐标 y 向下；l=长(东西)，w=宽(南北)）。
+  /// withDoor 时在底墙（p3→p4）中央加一扇标准宽门。返回 4 面墙 id（上/右/下/左）。
+  List<String> addRoom({
+    required Vec2 at,
+    required double l,
+    required double w,
+    double h = 2.8,
+    double thickness = 0.24,
+    bool withDoor = true,
+    double doorW = 0.9,
+  }) {
+    final p1 = at; // 左上
+    final p2 = Vec2(at.x + l, at.y); // 右上
+    final p3 = Vec2(at.x + l, at.y + w); // 右下
+    final p4 = Vec2(at.x, at.y + w); // 左下
+    final ids = <String>[];
+    for (final (a, b) in [(p1, p2), (p2, p3), (p3, p4), (p4, p1)]) {
+      final id = newId('w');
+      walls[id] = Wall(id: id, a: a, b: b, thickness: thickness, height: h);
+      ids.add(id);
+    }
+    if (withDoor) {
+      final bw = walls[ids[2]]!; // 底墙
+      final off = ((bw.length - doorW) / 2).clamp(0.0, bw.length);
+      final oid = newId('o');
+      openings[oid] = Opening(
+        id: oid,
+        wallId: ids[2],
+        kind: OpeningKind.door,
+        offset: off,
+        width: math.min(doorW, bw.length * 0.9),
+      );
+    }
+    return ids;
+  }
+
   /// 导入另一户型的全部内容（示例户型 / 复制粘贴用），同步 id 序列防撞号。
   void importPlan(FloorPlan other) {
     for (final w in other.walls.values) {
@@ -352,6 +417,86 @@ class FloorPlan {
   }
 }
 
+/// 房间环：由若干墙围合出的闭合房间。area 单位 m²，centroid 用于面积标注。
+class RoomLoop {
+  final List<Wall> walls;
+  final double area;
+  final Vec2 centroid;
+  RoomLoop(this.walls, this.area, this.centroid);
+}
+
+extension FloorPlanRooms on FloorPlan {
+  /// 找出所有闭合房间（墙图上的简单环，3~12 面墙，面积 ≥0.25m²，去重，上限 60 个）。
+  /// 典型户型 <40 面墙，DFS 足够快；用于平面图面积标注（原 app「房间面积」同款）。
+  List<RoomLoop> roomLoops() {
+    const eps = 0.03;
+    final nodes = <Vec2>[];
+    int nodeOf(Vec2 p) {
+      for (var i = 0; i < nodes.length; i++) {
+        if (nodes[i].distanceTo(p) < eps) return i;
+      }
+      nodes.add(p);
+      return nodes.length - 1;
+    }
+
+    final adj = <int, List<(int, String)>>{};
+    for (final w in walls.values) {
+      if (w.length < 0.05) continue;
+      final i = nodeOf(w.a), j = nodeOf(w.b);
+      if (i == j) continue;
+      adj.putIfAbsent(i, () => []).add((j, w.id));
+      adj.putIfAbsent(j, () => []).add((i, w.id));
+    }
+
+    final found = <RoomLoop>[];
+    final seen = <String>{};
+
+    void dfs(
+      int start,
+      int cur,
+      List<int> path,
+      List<String> used,
+      Set<String> usedSet,
+    ) {
+      if (found.length >= 60 || path.length > 12) return;
+      for (final (next, wid) in adj[cur] ?? const <(int, String)>[]) {
+        if (usedSet.contains(wid)) continue;
+        if (next == start && path.length >= 3) {
+          final keySet = Set<String>.from(used)..add(wid);
+          if (keySet.length < 3 || seen.contains(keySet.join('|'))) continue;
+          // 面积（shoelace）
+          var s = 0.0;
+          var cx = 0.0, cy = 0.0;
+          for (var i = 0; i < path.length; i++) {
+            final a = nodes[path[i]],
+                b = nodes[i + 1 < path.length ? i + 1 : 0];
+            s += a.x * b.y - b.x * a.y;
+            cx += a.x;
+            cy += a.y;
+          }
+          final area = s.abs() / 2;
+          if (area < 0.25) continue;
+          seen.add(keySet.join('|'));
+          final loopWalls = <Wall>[for (final wid in keySet) walls[wid]!]
+            ..sort((a, b) => a.id.compareTo(b.id));
+          found.add(
+            RoomLoop(loopWalls, area, Vec2(cx / path.length, cy / path.length)),
+          );
+        }
+        if (next <= start || path.contains(next)) continue;
+        dfs(start, next, [...path, next], [...used, wid], {...usedSet, wid});
+      }
+    }
+
+    for (var s = 0; s < nodes.length; s++) {
+      dfs(s, s, [s], const <String>[], const <String>{});
+      if (found.length >= 60) break;
+    }
+    found.sort((a, b) => b.area.compareTo(a.area));
+    return found;
+  }
+}
+
 /// 示例户型：3m×4m 客厅 + 2.4m 门 + 2.1m 窗，放沙发/电视柜/桌。
 FloorPlan samplePlan() {
   final p = FloorPlan()..name = '示例 · 一居室';
@@ -362,17 +507,73 @@ FloorPlan samplePlan() {
   for (final w in [w1, w2, w3, w4]) {
     p.walls[w.id] = w;
   }
-  p.openings['o1'] = Opening(id: 'o1', wallId: 'w4', kind: OpeningKind.door, offset: 1.2, width: 0.9);
-  p.openings['o2'] = Opening(id: 'o2', wallId: 'w1', kind: OpeningKind.window, offset: 1.5, width: 2.0, sill: 0.9);
-  p.items['i1'] = FurnitureItem(id: 'i1', kind: FurnitureKind.sofa, pos: const Vec2(1.0, 3.2), rotationDeg: 0);
-  p.items['i2'] = FurnitureItem(id: 'i2', kind: FurnitureKind.tv, pos: const Vec2(1.0, 0.8));
-  p.items['i3'] = FurnitureItem(id: 'i3', kind: FurnitureKind.table, pos: const Vec2(3.6, 2.0));
-  p.items['i4'] = FurnitureItem(id: 'i4', kind: FurnitureKind.coffee, pos: const Vec2(1.0, 2.2));
-  p.items['i5'] = FurnitureItem(id: 'i5', kind: FurnitureKind.stool, pos: const Vec2(4.2, 2.6));
-  p.items['i6'] = FurnitureItem(id: 'i6', kind: FurnitureKind.shelf, pos: const Vec2(4.9, 1.0), rotationDeg: 90);
-  p.items['i7'] = FurnitureItem(id: 'i7', kind: FurnitureKind.stove, pos: const Vec2(2.0, 3.7));
-  p.items['i8'] = FurnitureItem(id: 'i8', kind: FurnitureKind.sink, pos: const Vec2(2.8, 3.7));
-  p.items['i9'] = FurnitureItem(id: 'i9', kind: FurnitureKind.fridge, pos: const Vec2(4.4, 0.59));
-  p.items['i10'] = FurnitureItem(id: 'i10', kind: FurnitureKind.washer, pos: const Vec2(0.54, 1.8), rotationDeg: 90);
+  p.openings['o1'] = Opening(
+    id: 'o1',
+    wallId: 'w4',
+    kind: OpeningKind.door,
+    offset: 1.2,
+    width: 0.9,
+  );
+  p.openings['o2'] = Opening(
+    id: 'o2',
+    wallId: 'w1',
+    kind: OpeningKind.window,
+    offset: 1.5,
+    width: 2.0,
+    sill: 0.9,
+  );
+  p.items['i1'] = FurnitureItem(
+    id: 'i1',
+    kind: FurnitureKind.sofa,
+    pos: const Vec2(1.0, 3.2),
+    rotationDeg: 0,
+  );
+  p.items['i2'] = FurnitureItem(
+    id: 'i2',
+    kind: FurnitureKind.tv,
+    pos: const Vec2(1.0, 0.8),
+  );
+  p.items['i3'] = FurnitureItem(
+    id: 'i3',
+    kind: FurnitureKind.table,
+    pos: const Vec2(3.6, 2.0),
+  );
+  p.items['i4'] = FurnitureItem(
+    id: 'i4',
+    kind: FurnitureKind.coffee,
+    pos: const Vec2(1.0, 2.2),
+  );
+  p.items['i5'] = FurnitureItem(
+    id: 'i5',
+    kind: FurnitureKind.stool,
+    pos: const Vec2(4.2, 2.6),
+  );
+  p.items['i6'] = FurnitureItem(
+    id: 'i6',
+    kind: FurnitureKind.shelf,
+    pos: const Vec2(4.9, 1.0),
+    rotationDeg: 90,
+  );
+  p.items['i7'] = FurnitureItem(
+    id: 'i7',
+    kind: FurnitureKind.stove,
+    pos: const Vec2(2.0, 3.7),
+  );
+  p.items['i8'] = FurnitureItem(
+    id: 'i8',
+    kind: FurnitureKind.sink,
+    pos: const Vec2(2.8, 3.7),
+  );
+  p.items['i9'] = FurnitureItem(
+    id: 'i9',
+    kind: FurnitureKind.fridge,
+    pos: const Vec2(4.4, 0.59),
+  );
+  p.items['i10'] = FurnitureItem(
+    id: 'i10',
+    kind: FurnitureKind.washer,
+    pos: const Vec2(0.54, 1.8),
+    rotationDeg: 90,
+  );
   return p;
 }
