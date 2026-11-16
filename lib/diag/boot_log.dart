@@ -28,6 +28,10 @@ class BootLog {
 
   void _mirrorRaw() {
     try {
+      // 防异常风暴刷爆文件（上次刷到 4.7MB）：只保留尾部 8KB
+      if (_rawBuf.length > 8192) {
+        _rawBuf = _rawBuf.substring(_rawBuf.length - 8192);
+      }
       _rawFile?.writeAsStringSync(_rawBuf);
     } catch (_) {}
   }
