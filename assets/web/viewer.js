@@ -18,6 +18,18 @@
     tv: [1.4, 0.4, 0.5, 0x6fcf97],
     plant: [0.4, 0.4, 1.2, 0x66bb6a],
     desk: [1.2, 0.6, 0.75, 0xc9a86a],
+    stool: [0.35, 0.35, 0.45, 0xb98d6e],
+    fridge: [0.7, 0.7, 1.8, 0xb8c4cc],
+    washer: [0.6, 0.6, 0.9, 0xa8b8c4],
+    heater: [0.5, 0.4, 0.8, 0xcc9a6e],
+    stove: [0.75, 0.6, 0.85, 0x9aa4ab],
+    hood: [0.9, 0.7, 1.6, 0x7d8a94],
+    sink: [0.6, 0.5, 0.85, 0x8fa8b8],
+    microwave: [0.5, 0.4, 0.35, 0x6e7a84],
+    oven: [0.6, 0.6, 0.8, 0x8a97a1],
+    coffee: [1.1, 0.6, 0.4, 0xa8896a],
+    shoe: [0.8, 0.35, 1.0, 0x8f6f52],
+    shelf: [0.8, 0.3, 1.8, 0x9c7a5a],
   };
 
   var scene = new THREE.Scene();

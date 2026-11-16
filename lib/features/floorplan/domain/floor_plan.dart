@@ -127,7 +127,28 @@ class Opening {
 }
 
 /// 家具目录（MVP 用占位体素：w×d  footprint + 3D 盒高/色；后续换 glTF）。
-enum FurnitureKind { sofa, bed, table, chair, wardrobe, tv, plant, desk }
+enum FurnitureKind {
+  sofa,
+  bed,
+  table,
+  chair,
+  wardrobe,
+  tv,
+  plant,
+  desk,
+  stool,
+  fridge,
+  washer,
+  heater,
+  stove,
+  hood,
+  sink,
+  microwave,
+  oven,
+  coffee,
+  shoe,
+  shelf,
+}
 
 class FurnitureCatalog {
   const FurnitureCatalog._();
@@ -142,6 +163,18 @@ class FurnitureCatalog {
     FurnitureKind.tv: (1.4, 0.4, 0.5, 0x6FCF97),
     FurnitureKind.plant: (0.4, 0.4, 1.2, 0x66BB6A),
     FurnitureKind.desk: (1.2, 0.6, 0.75, 0xC9A86A),
+    FurnitureKind.stool: (0.35, 0.35, 0.45, 0xB98D6E),
+    FurnitureKind.fridge: (0.7, 0.7, 1.8, 0xB8C4CC),
+    FurnitureKind.washer: (0.6, 0.6, 0.9, 0xA8B8C4),
+    FurnitureKind.heater: (0.5, 0.4, 0.8, 0xCC9A6E),
+    FurnitureKind.stove: (0.75, 0.6, 0.85, 0x9AA4AB),
+    FurnitureKind.hood: (0.9, 0.7, 1.6, 0x7D8A94),
+    FurnitureKind.sink: (0.6, 0.5, 0.85, 0x8FA8B8),
+    FurnitureKind.microwave: (0.5, 0.4, 0.35, 0x6E7A84),
+    FurnitureKind.oven: (0.6, 0.6, 0.8, 0x8A97A1),
+    FurnitureKind.coffee: (1.1, 0.6, 0.4, 0xA8896A),
+    FurnitureKind.shoe: (0.8, 0.35, 1.0, 0x8F6F52),
+    FurnitureKind.shelf: (0.8, 0.3, 1.8, 0x9C7A5A),
   };
 
   static String labelOf(FurnitureKind k) {
@@ -150,6 +183,12 @@ class FurnitureCatalog {
       FurnitureKind.table: '餐桌', FurnitureKind.chair: '椅',
       FurnitureKind.wardrobe: '衣柜', FurnitureKind.tv: '电视柜',
       FurnitureKind.plant: '绿植', FurnitureKind.desk: '书桌',
+      FurnitureKind.stool: '凳子', FurnitureKind.fridge: '冰箱',
+      FurnitureKind.washer: '洗衣机', FurnitureKind.heater: '热水器',
+      FurnitureKind.stove: '燃气灶', FurnitureKind.hood: '烟机',
+      FurnitureKind.sink: '水槽', FurnitureKind.microwave: '微波炉',
+      FurnitureKind.oven: '烤箱', FurnitureKind.coffee: '茶几',
+      FurnitureKind.shoe: '鞋柜', FurnitureKind.shelf: '置物架',
     };
     return names[k]!;
   }
@@ -285,5 +324,12 @@ FloorPlan samplePlan() {
   p.items['i1'] = FurnitureItem(id: 'i1', kind: FurnitureKind.sofa, pos: const Vec2(1.0, 3.2), rotationDeg: 0);
   p.items['i2'] = FurnitureItem(id: 'i2', kind: FurnitureKind.tv, pos: const Vec2(1.0, 0.8));
   p.items['i3'] = FurnitureItem(id: 'i3', kind: FurnitureKind.table, pos: const Vec2(3.6, 2.0));
+  p.items['i4'] = FurnitureItem(id: 'i4', kind: FurnitureKind.coffee, pos: const Vec2(1.0, 2.2));
+  p.items['i5'] = FurnitureItem(id: 'i5', kind: FurnitureKind.stool, pos: const Vec2(4.2, 2.6));
+  p.items['i6'] = FurnitureItem(id: 'i6', kind: FurnitureKind.shelf, pos: const Vec2(4.9, 1.0), rotationDeg: 90);
+  p.items['i7'] = FurnitureItem(id: 'i7', kind: FurnitureKind.stove, pos: const Vec2(2.0, 3.7));
+  p.items['i8'] = FurnitureItem(id: 'i8', kind: FurnitureKind.sink, pos: const Vec2(2.8, 3.7));
+  p.items['i9'] = FurnitureItem(id: 'i9', kind: FurnitureKind.fridge, pos: const Vec2(4.4, 0.59));
+  p.items['i10'] = FurnitureItem(id: 'i10', kind: FurnitureKind.washer, pos: const Vec2(0.54, 1.8), rotationDeg: 90);
   return p;
 }
