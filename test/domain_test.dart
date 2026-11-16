@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jiajia/features/floorplan/domain/floor_plan.dart';
+import 'package:jiajia/features/floorplan/domain/model_assets.dart';
 
 void main() {
   group('Opening 门型/高度（v0.1.8）', () {
@@ -77,6 +80,53 @@ void main() {
       }
       expect(importedO.contains(a.newId('o')), false, reason: 'o 撞号');
       expect(importedI.contains(a.newId('i')), false, reason: 'i 撞号');
+    });
+  });
+
+  group('素材模型（原 app 26 件，v0.1.10）', () {
+    test('目录有 26 件且分类齐全', () {
+      expect(ModelAssets.all.length, 26);
+      expect(ModelAssets.categories,
+          ['门', '五金', '柜', '栏杆', '柱', '墙体', '基础体']);
+      for (final m in ModelAssets.all) {
+        expect(m.w > 0 && m.d > 0 && m.h > 0, true, reason: '尺寸须为正');
+      }
+    });
+
+    test('FurnitureItem 带 modelId：JSON 往返 + 占地取素材', () {
+      final p = FloorPlan();
+      p.walls['w1'] = Wall(id: 'w1', a: const Vec2(0, 0), b: const Vec2(3, 0));
+      p.items['i1'] = FurnitureItem(
+          id: 'i1',
+          kind: FurnitureKind.asset,
+          pos: const Vec2(1, 1),
+          modelId: '1007');
+      final restored = FloorPlan.fromJsonString(p.toJsonString());
+      final i = restored.items['i1']!;
+      expect(i.modelId, '1007');
+      expect(i.kind, FurnitureKind.asset);
+      // 占地 = 大衣柜（1.84×0.62），不是 asset 默认占位盒（0.6×0.6）
+      final (fw, fd) = i.footprint;
+      expect(fw, closeTo(1.84, 1e-9));
+      expect(fd, closeTo(0.62, 1e-9));
+      // 3D 契约：items[].model 字段存在
+      expect(p.toJson()['items'][0]['model'], '1007');
+    });
+
+    test('旧 JSON 无 model 字段 → modelId 为 null（向后兼容）', () {
+      final raw = jsonEncode({
+        'name': 't',
+        'walls': [
+          Wall(id: 'w1', a: const Vec2(0, 0), b: const Vec2(3, 0)).toJson()
+        ],
+        'openings': <dynamic>[],
+        'items': [
+          {'id': 'i1', 'kind': 'sofa', 'x': 1.0, 'y': 1.0, 'rot': 0}
+        ],
+      });
+      final restored = FloorPlan.fromJsonString(raw);
+      expect(restored.items['i1']!.modelId, isNull);
+      expect(restored.items['i1']!.kind, FurnitureKind.sofa);
     });
   });
 }

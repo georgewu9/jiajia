@@ -178,8 +178,95 @@
     });
   }
 
+  // ---------- 素材模型（原 app OBJ/MTL，内嵌于 models.js） ----------
+  // 解析 OBJ 文本 → 按 usemtl 分组的面板；归一化：模型 y 轴竖直，
+  // scale = 目标高 / 模型高，落地面、x/z 居中。
+  function parseOBJ(txt) {
+    var verts = [], groups = {}, cur = 'default', mats = [];
+    var lines = txt.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      if (line.charAt(0) === 'v' && line.charAt(1) === ' ') {
+        var p = line.trim().split(/\s+/);
+        verts.push([+p[1], +p[2], +p[3]]);
+      } else if (line.indexOf('usemtl') === 0) {
+        cur = line.trim().split(/\s+/)[1] || 'default';
+      } else if (line.charAt(0) === 'f') {
+        if (mats.indexOf(cur) < 0) mats.push(cur);
+        var t = line.trim().split(/\s+/), idx = [];
+        for (var k = 1; k < t.length; k++) idx.push(+t[k].split('/')[0]);
+        if (idx.length < 3) continue;
+        if (!groups[cur]) groups[cur] = [];
+        var g = groups[cur];
+        for (var j = 1; j < idx.length - 1; j++) {
+          g.push(idx[0], idx[j], idx[j + 1]);
+        }
+      }
+    }
+    return { verts: verts, groups: groups, mats: mats };
+  }
+
+  var modelCache = {};
+  function modelGeometry(mid) {
+    if (modelCache[mid]) return modelCache[mid];
+    var model = window.JJ_MODELS && window.JJ_MODELS[mid];
+    if (!model || !model.o) return null;
+    var parsed = parseOBJ(model.o);
+    var mc = model.mc || {};
+    var meshes = [];
+    for (var i = 0; i < parsed.mats.length; i++) {
+      var matName = parsed.mats[i];
+      var arr = parsed.groups[matName];
+      if (!arr || arr.length < 3) continue;
+      var geo = new THREE.BufferGeometry();
+      var pos = new Float32Array(arr.length * 3);
+      for (var a = 0; a < arr.length; a++) {
+        var v = parsed.verts[arr[a] - 1];
+        pos[a * 3] = v[0]; pos[a * 3 + 1] = v[1]; pos[a * 3 + 2] = v[2];
+      }
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.computeVertexNormals();
+      var col = mc[matName] != null ? parseInt(mc[matName].slice(1), 16) : model.c;
+      meshes.push(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+        color: col, side: THREE.DoubleSide })));
+    }
+    if (!meshes.length) return null;
+    var inner = new THREE.Group();
+    meshes.forEach(function (m) { inner.add(m); });
+    // 归一化：包围盒 y 轴 = 竖直；目标高 model.h；落地面、x/z 居中
+    var bb = new THREE.Box3().setFromObject(inner);
+    var size = bb.getSize(new THREE.Vector3());
+    var s = size.y > 1e-6 ? model.h / size.y :
+        model.h / Math.max(size.x, size.z);
+    inner.scale.setScalar(s);
+    inner.updateMatrixWorld(true);
+    bb = new THREE.Box3().setFromObject(inner);
+    var c = bb.getCenter(new THREE.Vector3());
+    inner.position.x = -c.x;
+    inner.position.z = -c.z;
+    inner.position.y = -bb.min.y;
+    var outer = new THREE.Group();
+    outer.add(inner);
+    modelCache[mid] = outer;
+    return outer;
+  }
+
   function buildItems(plan) {
     plan.items.forEach(function (i) {
+      var modelMid = i.model && window.JJ_MODELS && window.JJ_MODELS[i.model]
+          ? i.model : null;
+      if (modelMid) {
+        var proto = modelGeometry(modelMid);
+        if (proto) {
+          var mesh = proto.clone(true);
+          var md = window.JJ_MODELS[modelMid];
+          mesh.position.set(i.x, 0, i.y);
+          mesh.rotation.y = -((i.rot || 0) * Math.PI / 180);
+          mesh.userData = { id: i.id, kind: i.kind, model: modelMid };
+          root.add(mesh);
+          return;
+        }
+      }
       var spec = CATALOG[i.kind];
       if (!spec) return;
       var box = new THREE.Mesh(

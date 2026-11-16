@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/theme.dart';
 import '../../../diag/boot_log.dart' show bootLog;
 import '../domain/floor_plan.dart';
+import '../domain/model_assets.dart';
 import '../state/editor_doc.dart';
 import '../../viewer3d/viewer3d_page.dart';
 
@@ -239,6 +240,8 @@ class _FloorplanEditorPageState
                         () => _setTool(EditorTool.opening)),
                     _toolChip('家具', EditorTool.furniture, Icons.inventory_2,
                         () => _setTool(EditorTool.furniture)),
+                    _toolChip('素材', EditorTool.furniture, Icons.category,
+                        _openModelSheet),
                     _toolChip('删除', EditorTool.erase, Icons.delete_outline,
                         () => _setTool(EditorTool.erase)),
                     const SizedBox(width: 8),
@@ -260,7 +263,7 @@ class _FloorplanEditorPageState
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     children: [
-                      for (final k in FurnitureKind.values)
+                      for (final k in FurnitureCatalog.kinds)
                         Padding(
                           padding: const EdgeInsets.only(right: 6),
                           child: ChoiceChip(
@@ -305,6 +308,142 @@ class _FloorplanEditorPageState
         _sel = null;
         _wallStart = _wallCur = null;
       });
+
+  // ---------------- 素材模型（原 app 内置 26 件，按分类选择） ----------------
+
+  void _openModelSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: JiajiaColors.surface,
+      builder: (ctx) {
+        int catIdx = 0;
+        return StatefulBuilder(
+          builder: (ctx2, setIt) {
+            final cat = ModelAssets.categories[catIdx];
+            final models = ModelAssets.ofCategory(cat);
+            return DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: 0.6,
+              minChildSize: 0.3,
+              maxChildSize: 0.9,
+              builder: (BuildContext c, ScrollController sc) => Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text('素材模型 · ${models.length} 件',
+                              style: const TextStyle(
+                                  color: JiajiaColors.text1,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600)),
+                        ),
+                        Text('原 app 内置',
+                            style: TextStyle(
+                                color: JiajiaColors.text2, fontSize: 11)),
+                      ],
+                    ),
+                  ),
+                  SizedBox(
+                    height: 36,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      controller: sc,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      children: [
+                        for (var i = 0;
+                            i < ModelAssets.categories.length;
+                            i++)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: ChoiceChip(
+                              label: Text(ModelAssets.categories[i],
+                                  style: const TextStyle(fontSize: 12)),
+                              selected: i == catIdx,
+                              onSelected: (_) => setIt(() => catIdx = i),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: GridView.builder(
+                      padding: const EdgeInsets.all(12),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 3, mainAxisSpacing: 8),
+                      itemCount: models.length,
+                      itemBuilder: (_, j) {
+                        final m = models[j];
+                        return Tooltip(
+                          message: '${m.w}×${m.d}×${m.h} m',
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(10),
+                            onTap: () {
+                              _placeModel(m.id);
+                              Navigator.pop(ctx2);
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                color: JiajiaColors.raised,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: JiajiaColors.line),
+                              ),
+                              child: Column(
+                                children: [
+                                  Icon(Icons.category,
+                                      color: Color(0xFF000000 | m.color),
+                                      size: 26),
+                                  const SizedBox(height: 4),
+                                  Text(m.label,
+                                      style: const TextStyle(
+                                          color: JiajiaColors.text1,
+                                          fontSize: 12)),
+                                  Text(
+                                      '${m.w.toStringAsFixed(2)}×'
+                                      '${m.d.toStringAsFixed(2)}×'
+                                      '${m.h.toStringAsFixed(2)}m',
+                                      style: TextStyle(
+                                          color: JiajiaColors.text2,
+                                          fontSize: 9)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _placeModel(String mid) {
+    final asset = ModelAssets.byId(mid);
+    if (asset == null) return;
+    final center = _cam.toWorld(
+        Offset(_canvasSize.width / 2, _canvasSize.height / 2));
+    final plan = ref.read(editorDocProvider).plan;
+    final pos = _snapPoint(center, plan);
+    ref.read(editorDocProvider.notifier).mutate((p) {
+      final id = p.newId('i');
+      p.items[id] = FurnitureItem(
+          id: id,
+          kind: FurnitureKind.asset,
+          pos: pos,
+          modelId: mid);
+      _sel = _Sel(id, 'item');
+    });
+    _toast('已放 ${asset.label}：2D 为占地框，切 3D 看真实形状');
+  }
 
   // ---------------- 新建 / 保存 ----------------
 
@@ -1234,9 +1373,13 @@ class _PlanPainter extends CustomPainter {
             ..color = color
             ..style = PaintingStyle.stroke
             ..strokeWidth = selected ? 2.5 : 1.5);
+      final label = i.modelId == null
+          ? FurnitureCatalog.labelOf(i.kind)
+          : (ModelAssets.byId(i.modelId!)?.label ??
+              FurnitureCatalog.labelOf(i.kind));
       final tp = TextPainter(
           text: TextSpan(
-              text: FurnitureCatalog.labelOf(i.kind),
+              text: label,
               style: TextStyle(color: JiajiaColors.text1, fontSize: 10)),
           textDirection: TextDirection.ltr)
         ..layout();

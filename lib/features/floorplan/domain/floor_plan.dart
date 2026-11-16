@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'model_assets.dart';
+
 /// 户型领域模型。单位：米。坐标为 2D 平面（y 向下为正，与画布一致）。
 /// 2D 编辑器、3D 视图（JSON 桥）、持久化共用这一份数据。
 
@@ -148,6 +150,8 @@ enum FurnitureKind {
   coffee,
   shoe,
   shelf,
+  /// 原 app 素材模型（OBJ/MTL，见 ModelAssets）；2D 占地由 item.footprint 决定。
+  asset,
 }
 
 class FurnitureCatalog {
@@ -175,7 +179,32 @@ class FurnitureCatalog {
     FurnitureKind.coffee: (1.1, 0.6, 0.4, 0xA8896A),
     FurnitureKind.shoe: (0.8, 0.35, 1.0, 0x8F6F52),
     FurnitureKind.shelf: (0.8, 0.3, 1.8, 0x9C7A5A),
+    FurnitureKind.asset: (0.6, 0.6, 0.6, 0x8B93A5),
   };
+
+  /// 家具工具栏可选种类（不含素材模型 asset —— 走「素材」入口）。
+  static const List<FurnitureKind> kinds = [
+    FurnitureKind.sofa,
+    FurnitureKind.bed,
+    FurnitureKind.table,
+    FurnitureKind.chair,
+    FurnitureKind.wardrobe,
+    FurnitureKind.tv,
+    FurnitureKind.plant,
+    FurnitureKind.desk,
+    FurnitureKind.stool,
+    FurnitureKind.fridge,
+    FurnitureKind.washer,
+    FurnitureKind.heater,
+    FurnitureKind.stove,
+    FurnitureKind.hood,
+    FurnitureKind.sink,
+    FurnitureKind.microwave,
+    FurnitureKind.oven,
+    FurnitureKind.coffee,
+    FurnitureKind.shoe,
+    FurnitureKind.shelf,
+  ];
 
   static String labelOf(FurnitureKind k) {
     const names = {
@@ -189,6 +218,7 @@ class FurnitureCatalog {
       FurnitureKind.sink: '水槽', FurnitureKind.microwave: '微波炉',
       FurnitureKind.oven: '烤箱', FurnitureKind.coffee: '茶几',
       FurnitureKind.shoe: '鞋柜', FurnitureKind.shelf: '置物架',
+      FurnitureKind.asset: '素材',
     };
     return names[k]!;
   }
@@ -199,17 +229,29 @@ class FurnitureItem {
   FurnitureKind kind;
   Vec2 pos;
   double rotationDeg; // 绕 Z 轴，度
+  final String? modelId; // 原 app 素材模型 id（OBJ/MTL，见 ModelAssets）；null=占位盒
 
-  FurnitureItem({required this.id, required this.kind, required this.pos, this.rotationDeg = 0});
+  FurnitureItem(
+      {required this.id,
+      required this.kind,
+      required this.pos,
+      this.rotationDeg = 0,
+      this.modelId});
 
+  /// 2D 占地（w×d，米）：素材模型用其归一化占地，否则占位盒。
   (double, double) get footprint {
+    final m = modelId == null ? null : ModelAssets.byId(modelId!);
+    if (m != null) return (m.w, m.d);
     final s = FurnitureCatalog.spec[kind]!;
     return (s.$1, s.$2);
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id, 'kind': kind.name,
-        'x': pos.toJson()['x'], 'y': pos.toJson()['y'],
+        'id': id,
+        'kind': kind.name,
+        if (modelId != null) 'model': modelId,
+        'x': pos.toJson()['x'],
+        'y': pos.toJson()['y'],
         'rot': rotationDeg.round(),
       };
 }
@@ -279,6 +321,7 @@ class FloorPlan {
         kind: FurnitureKind.values.firstWhere((k) => k.name == i['kind']),
         pos: Vec2((i['x'] as num).toDouble(), (i['y'] as num).toDouble()),
         rotationDeg: (i['rot'] as num?)?.toDouble() ?? 0,
+        modelId: i['model'] as String?,
       );
       p._seq = p.maxSeq(p._seq, i['id'] as String, 'i');
     }
