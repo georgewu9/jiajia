@@ -12,6 +12,34 @@ class BootLog {
   String? _prev; // 上次启动的快照（面板优先展示）
   bool get hasErrors => _lines.any((l) => l.startsWith('ERR')) || _prev != null;
 
+  // ---------- 原始外部文件探针（/sdcard/Android/data/<pkg>/files/） ----------
+  // 系统在进程启动时就建好该目录，无需权限、不依赖 path_provider ——
+  // main() 第一行就能写；与 Kotlin Application.onCreate 写同一文件，
+  // 可精确切分：NATIVE 有 / DART 无 = isolate 没起来（引擎层）。
+  File? _rawFile;
+  String _rawBuf = '';
+
+  void attachRaw(File f) {
+    _rawFile = f;
+    try {
+      _rawBuf = f.existsSync() ? f.readAsStringSync() : '';
+    } catch (_) {}
+  }
+
+  void _mirrorRaw() {
+    try {
+      _rawFile?.writeAsStringSync(_rawBuf);
+    } catch (_) {}
+  }
+
+  /// 原生侧（Kotlin）打点：把标记合并进同一个文件。
+  static void noteNative(File f, String marker) {
+    try {
+      f.writeAsStringSync(
+          '${f.existsSync() ? f.readAsStringSync() : ''}[${DateTime.now()}] $marker\n');
+    } catch (_) {}
+  }
+
   /// 读上次留下的日志（面板用）。返回非 null 表示有历史内容。
   String? loadPrevious(File f) {
     try {
@@ -33,12 +61,15 @@ class BootLog {
   }
 
   void line(String m) {
-    final l = '[${DateTime.now().millisecondsSinceEpoch % 100000000}] $m';
+    final ts = DateTime.now().toIso8601String();
+    final l = '[$ts] $m';
     _lines.add(l);
     if (_lines.length > keep) _lines.removeAt(0);
     try {
       _file?.writeAsStringSync(_lines.join('\n'));
     } catch (_) {}
+    _rawBuf += '[DART] $l\n';
+    _mirrorRaw();
   }
 
   void error(String m) => line('ERR $m');

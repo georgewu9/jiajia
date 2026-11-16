@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show File;
 
 import 'package:flutter/material.dart';
@@ -11,6 +12,10 @@ import 'features/viewer3d/viewer3d_page.dart';
 
 /// jiajia：画户型 → 摆家具 → 3D 浏览。
 void main() {
+  // 外部原始探针：/sdcard/Android/data/com.georgewu.jiajia/files/jiajia_diag.txt
+  // 系统在进程启动时就建好该目录（无需权限、不依赖 path_provider），
+  // main() 第一行就能写；Kotlin Application 写同一文件 → 切分 NATIVE/DART 两层。
+  bootLog.attachRaw(File('/sdcard/Android/data/com.georgewu.jiajia/files/jiajia_diag.txt'));
   bootLog.line('main-start');
   final panel = ValueNotifier<String?>(null);
   // 根级护栏：树里任何位置（含 JiajiaApp.build / theme / MaterialApp）的
@@ -23,13 +28,18 @@ void main() {
   FlutterError.presentError = (d) => bootLog.error('present: ${d.exception}');
   try {
     WidgetsFlutterBinding.ensureInitialized();
+    bootLog.line('binding-init');
     getApplicationDocumentsDirectory().then((dir) {
       bootLog.attach(File('${dir.path}/jiajia_boot.log'));
       bootLog.line('bootlog-attached');
       if (bootLog.hasErrors) panel.value = bootLog.panelText();
     }).catchError((Object e) => bootLog.error('path_provider-failed: $e'));
-    runApp(ErrorRoot(panel: panel, child: const ProviderScope(child: JiajiaApp())));
-    bootLog.line('runApp-called');
+    runZonedGuarded(() {
+      runApp(ErrorRoot(panel: panel, child: const ProviderScope(child: JiajiaApp())));
+      bootLog.line('runApp-called');
+    }, (e, st) {
+      bootLog.error('zone-async: $e\n$st');
+    });
   } catch (e, st) {
     bootLog.error('main-crash: $e\n$st');
     panel.value = bootLog.panelText();
