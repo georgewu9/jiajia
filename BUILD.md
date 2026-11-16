@@ -40,3 +40,8 @@
    配方细节见 x86-on-arm64 skill。
 3. strip 生效与否：APK 里 libflutter.so ≈ 11.7MB（未 strip 时 165MB）。strip 失败不挂构建，出包前 `unzip -l` 查一眼。
 4. jni(CMake) 编译走 qemu 模拟，全量 release 约 3 分钟。
+5. **gen_snapshot 必须用官方 x64 版（qemu shim），不能用桌面 arm64 顶替** [2026-11-16 真机验证]：
+   `flutter/bin/cache/artifacts/engine/android-arm64-release/linux-arm64/gen_snapshot`
+   是一个 shim → exec `qemu-x86_64` 跑 `.../android-arm64-release/linux-x64/gen_snapshot`（官方 android 目标版）。
+   桌面 arm64 版 gen_snapshot 生成的 libapp.so 在真机上起不了 isolate → **release 白屏（debug 包正常）**。
+   若 flutter 重新 precache 把 shim 覆盖成 symlink，按 x86-on-arm64 skill 重套。
