@@ -167,47 +167,98 @@ class JiajiaApp extends StatelessWidget {
     return MaterialApp(
       title: 'jiajia',
       theme: JiajiaTheme.dark,
-      home: const HomePage(),
+      home: const LandingPage(),
     );
   }
 }
 
-class HomePage extends StatefulWidget {
-  const HomePage({super.key});
-
-  @override
-  State<HomePage> createState() => _HomePageState();
-}
-
-class _HomePageState extends State<HomePage> {
-  int _tab = 0;
-
-  static const _tabs = [
-    (icon: Icons.edit, label: '画户型'),
-    (icon: Icons.view_in_ar, label: '3D 浏览'),
-  ];
+/// 初始落地页：纯标准 Material widget（无 CustomPainter / 无 WebView），
+/// 保证 release 下一定能画出来；户型编辑 / 3D 全部按需路由进入。
+class LandingPage extends StatelessWidget {
+  const LandingPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    bootLog.line('HomePage-built');
+    bootLog.line('LandingPage-built');
     return Scaffold(
-      body: IndexedStack(
-        index: _tab,
-        children: [
-          const FloorplanEditorPage(),
-          Viewer3dPage(active: _tab == 1),
-        ],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (i) => setState(() => _tab = i),
-        destinations: [
-          for (final t in _tabs)
-            NavigationDestination(
-              icon: Icon(t.icon, size: 22),
-              label: t.label,
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: JiajiaColors.accentSoft,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Icon(Icons.view_quilt,
+                      size: 40, color: JiajiaColors.accent),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'jiajia',
+                  style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w700,
+                      color: JiajiaColors.text1),
+                ),
+                const SizedBox(height: 6),
+                const Text('画户型 · 摆家具 · 3D 浏览',
+                    style: TextStyle(fontSize: 14, color: JiajiaColors.text2)),
+                const SizedBox(height: 40),
+                SizedBox(
+                  width: 220,
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: JiajiaColors.accent,
+                      padding:
+                          const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 16),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) =>
+                                const FloorplanEditorPage())),
+                    icon: const Icon(Icons.draw, size: 20, color: JiajiaColors.bgBase),
+                    label: const Text('开始画户型',
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: JiajiaColors.bgBase)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: 220,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: JiajiaColors.text1,
+                      side: const BorderSide(color: JiajiaColors.line),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) =>
+                                const Viewer3dPage())),
+                    icon: const Icon(Icons.view_in_ar,
+                        size: 20, color: JiajiaColors.accent),
+                    label: const Text('3D 浏览',
+                        style: TextStyle(fontSize: 15)),
+                  ),
+                ),
+              ],
             ),
-        ],
+          ),
+        ),
       ),
     );
   }

@@ -108,7 +108,8 @@ class _Viewer3dPageState extends ConsumerState<Viewer3dPage> {
     ref.listen(editorDocProvider, (prev, next) => _pushPlan());
 
     final plan = ref.watch(editorDocProvider).plan;
-    final ctrl = _getCtrl();
+    // 只有本页激活时才真正创建 WebView 平台视图（避免隐藏态下建平台视图）
+    final ctrl = widget.active ? _getCtrl() : null;
 
     return Scaffold(
       appBar: AppBar(

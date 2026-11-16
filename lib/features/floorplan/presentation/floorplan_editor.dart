@@ -7,6 +7,7 @@ import '../../../app/theme.dart';
 import '../../../diag/boot_log.dart' show bootLog;
 import '../domain/floor_plan.dart';
 import '../state/editor_doc.dart';
+import '../../viewer3d/viewer3d_page.dart';
 
 enum EditorTool { wall, select, opening, furniture, erase }
 
@@ -112,6 +113,15 @@ class _FloorplanEditorPageState
             icon: const Icon(Icons.save, size: 20),
             tooltip: '保存',
             onPressed: () => _save(context, plan),
+          ),
+          IconButton(
+            icon: const Icon(Icons.view_in_ar, size: 20,
+                color: JiajiaColors.accent),
+            tooltip: '3D 浏览',
+            onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const Viewer3dPage())),
           ),
         ],
       ),

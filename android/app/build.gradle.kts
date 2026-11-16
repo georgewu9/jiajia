@@ -27,6 +27,10 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        ndk {
+            // 个人 app，只出 arm64（小米 13 等真机），砍掉 v7a/x64 体积
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildTypes {
