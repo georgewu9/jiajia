@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jiajia/features/floorplan/domain/floor_plan.dart';
 import 'package:jiajia/features/floorplan/domain/model_assets.dart';
+import 'package:jiajia/features/floorplan/state/editor_doc.dart';
 
 void main() {
   group('Opening 门型/高度（v0.1.8）', () {
@@ -127,6 +128,16 @@ void main() {
       final restored = FloorPlan.fromJsonString(raw);
       expect(restored.items['i1']!.modelId, isNull);
       expect(restored.items['i1']!.kind, FurnitureKind.sofa);
+    });
+  });
+
+  group('PlanStore 名称清洗（v0.1.11 保存/打开）', () {
+    test('非法字符替换 / 去空白 / 限长 / 空给默认', () {
+      expect(
+          PlanStore.sanitizeName(r'a/b\c:d*e?f"g<h>i|j'), 'a_b_c_d_e_f_g_h_i_j');
+      expect(PlanStore.sanitizeName('   '), '户型');
+      expect(PlanStore.sanitizeName('x' * 60).length, 40);
+      expect(PlanStore.sanitizeName('  我的户型  '), '我的户型');
     });
   });
 }

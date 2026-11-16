@@ -7,7 +7,9 @@ import 'package:path_provider/path_provider.dart';
 
 import 'app/theme.dart';
 import 'diag/boot_log.dart' show bootLog;
+import 'features/floorplan/domain/floor_plan.dart';
 import 'features/floorplan/presentation/floorplan_editor.dart';
+import 'features/floorplan/state/editor_doc.dart';
 import 'features/viewer3d/viewer3d_page.dart';
 
 /// jiajia：画户型 → 摆家具 → 3D 浏览。
@@ -194,6 +196,17 @@ class _DiagnosticScreen extends StatelessWidget {
   }
 }
 
+/// 落地页路由哨兵：从编辑器/3D 返回（任意路由 pop）时通知落地页刷新
+/// 「我的户型」列表（刚保存过的方案要显示出来）。
+class PlansRouteObserver extends RouteObserver<PageRoute> {
+  void Function()? onPop;
+
+  @override
+  void didPop(Route route, Route? previousRoute) => onPop?.call();
+}
+
+final plansRouteObserver = PlansRouteObserver();
+
 class JiajiaApp extends StatelessWidget {
   const JiajiaApp({super.key});
 
@@ -203,6 +216,7 @@ class JiajiaApp extends StatelessWidget {
     return MaterialApp(
       title: 'jiajia',
       theme: JiajiaTheme.dark,
+      navigatorObservers: [plansRouteObserver],
       home: const LandingPage(),
     );
   }
@@ -210,106 +224,237 @@ class JiajiaApp extends StatelessWidget {
 
 /// 初始落地页：纯标准 Material widget（无 CustomPainter / 无 WebView），
 /// 保证 release 下一定能画出来；户型编辑 / 3D 全部按需路由进入。
-class LandingPage extends StatelessWidget {
+/// 含「我的户型」：打开/删除已保存的方案（本地 plans/*.json）。
+class LandingPage extends StatefulWidget {
   const LandingPage({super.key});
+
+  @override
+  State<LandingPage> createState() => LandingPageState();
+}
+
+class LandingPageState extends State<LandingPage> {
+  final _store = PlanStore();
+  List<PlanEntry> _plans = const [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+    plansRouteObserver.onPop = _refresh; // 从编辑器/3D 返回 → 刷新列表
+  }
+
+  @override
+  void dispose() {
+    plansRouteObserver.onPop = null;
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    final list = await _store.list(); // 环境不支持（单测）→ 空表
+    if (mounted) {
+      setState(() {
+        _plans = list;
+        _loading = false;
+      });
+    }
+  }
+
+  /// 打开已存户型：载入 → 替换编辑器文档 → 进编辑器。
+  Future<void> _openPlan(BuildContext context, PlanEntry e) async {
+    final p = await _store.loadPath(e.path);
+    if (p == null || !context.mounted) return; // 文件损坏/丢失/页面已销毁
+    ProviderScope.containerOf(context)
+        .read(editorDocProvider.notifier)
+        .replace(p);
+    if (context.mounted) {
+      Navigator.push(context,
+          MaterialPageRoute(builder: (_) => const FloorplanEditorPage()));
+    }
+  }
+
+  Future<void> _deletePlan(PlanEntry e) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text('删除「${e.name}」？'),
+        content: const Text('户型、门窗洞和家具摆放都会一并删除，不可恢复。'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('删除')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _store.delete(e);
+    await _refresh();
+  }
+
+  String _fmtTime(DateTime t) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${t.year}-${two(t.month + 1)}-${two(t.day)} '
+        '${two(t.hour)}:${two(t.minute)}';
+  }
 
   @override
   Widget build(BuildContext context) {
     bootLog.line('LandingPage-built');
+    final plansSection = _loading
+        ? const Text('读取已存户型…',
+            style: TextStyle(fontSize: 13, color: JiajiaColors.text2))
+        : _plans.isEmpty
+            ? const Text('还没有保存的户型。画完点编辑器右上角「保存」就会出现在这里。',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: JiajiaColors.text2))
+            : Column(
+                children: [
+                  for (final e in _plans)
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 0),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                      leading: const Icon(Icons.architecture,
+                          size: 20, color: JiajiaColors.accent),
+                      title: Text(e.name,
+                          style: const TextStyle(
+                              fontSize: 14,
+                              color: JiajiaColors.text1)),
+                      subtitle: Text(
+                          '${_fmtTime(e.mtime)} · ${(e.sizeBytes / 1024).toStringAsFixed(1)} KB',
+                          style:
+                              const TextStyle(fontSize: 11, color: JiajiaColors.text2)),
+                      onTap: () => _openPlan(context, e),
+                      trailing: IconButton(
+                        tooltip: '删除',
+                        icon: const Icon(Icons.delete_outline,
+                            size: 18, color: JiajiaColors.text2),
+                        onPressed: () => _deletePlan(e),
+                      ),
+                    ),
+                ],
+              );
+
     return Scaffold(
       body: SafeArea(
         child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    color: JiajiaColors.accentSoft,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Icon(
-                    Icons.view_quilt,
-                    size: 40,
-                    color: JiajiaColors.accent,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'jiajia',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w700,
-                    color: JiajiaColors.text1,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  '画户型 · 摆家具 · 3D 浏览',
-                  style: TextStyle(fontSize: 14, color: JiajiaColors.text2),
-                ),
-                const SizedBox(height: 40),
-                SizedBox(
-                  width: 220,
-                  child: FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: JiajiaColors.accent,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 16,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      color: JiajiaColors.accentSoft,
+                      borderRadius: BorderRadius.circular(20),
                     ),
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const FloorplanEditorPage(),
-                      ),
-                    ),
-                    icon: const Icon(
-                      Icons.draw,
-                      size: 20,
-                      color: JiajiaColors.bgBase,
-                    ),
-                    label: const Text(
-                      '开始画户型',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: JiajiaColors.bgBase,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: 220,
-                  child: OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: JiajiaColors.text1,
-                      side: const BorderSide(color: JiajiaColors.line),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const Viewer3dPage()),
-                    ),
-                    icon: const Icon(
-                      Icons.view_in_ar,
-                      size: 20,
+                    child: const Icon(
+                      Icons.view_quilt,
+                      size: 40,
                       color: JiajiaColors.accent,
                     ),
-                    label: const Text('3D 浏览', style: TextStyle(fontSize: 15)),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 16),
+                  const Text(
+                    'jiajia',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w700,
+                      color: JiajiaColors.text1,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    '画户型 · 摆家具 · 3D 浏览',
+                    style: TextStyle(fontSize: 14, color: JiajiaColors.text2),
+                  ),
+                  const SizedBox(height: 40),
+                  SizedBox(
+                    width: 220,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: JiajiaColors.accent,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 16,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () {
+                        ProviderScope.containerOf(context)
+                            .read(editorDocProvider.notifier)
+                            .replace(FloorPlan()..name = '新建户型');
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const FloorplanEditorPage(),
+                          ),
+                        );
+                      },
+                      icon: const Icon(
+                        Icons.draw,
+                        size: 20,
+                        color: JiajiaColors.bgBase,
+                      ),
+                      label: const Text(
+                        '开始画户型',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: JiajiaColors.bgBase,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: 220,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: JiajiaColors.text1,
+                        side: const BorderSide(color: JiajiaColors.line),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const Viewer3dPage()),
+                      ),
+                      icon: const Icon(
+                        Icons.view_in_ar,
+                        size: 20,
+                        color: JiajiaColors.accent,
+                      ),
+                      label: const Text('3D 浏览', style: TextStyle(fontSize: 15)),
+                    ),
+                  ),
+                  const SizedBox(height: 36),
+                  // ---------------- 我的户型 ----------------
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('我的户型',
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: JiajiaColors.text1)),
+                  ),
+                  const SizedBox(height: 10),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 320),
+                    child: plansSection,
+                  ),
+                ],
+              ),
             ),
           ),
         ),

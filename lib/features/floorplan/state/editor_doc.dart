@@ -41,6 +41,9 @@ class EditorDocNotifier extends Notifier<EditorDoc> {
   bool get canUndo => state.undo.isNotEmpty;
   bool get canRedo => state.redo.isNotEmpty;
 
+  /// 载入一份户型（打开已存方案 / 示例）：清掉旧撤销栈，从头开始。
+  void replace(FloorPlan p) => state = EditorDoc.fresh(p);
+
   /// 对 [mutate] 直接改 plan（小模型，改完整体快照进 undo）。
   void mutate(void Function(FloorPlan p) mutate, {bool record = true}) {
     final p = state.plan;
@@ -64,7 +67,17 @@ final editorDocProvider =
     NotifierProvider<EditorDocNotifier, EditorDoc>(EditorDocNotifier.new);
 
 /// 户型 JSON 存/读（app 目录下 plans/）。M4 换 drift 时只改这里。
+///
+/// 约定：一个户型 = plans/<名称>.json；名称做了清洗（去非法字符/限长），
+/// 重名自动加 (1)(2)…，不会互相覆盖。
 class PlanStore {
+  /// 文件名清洗：去掉路径/分隔/危险字符，限长 40，空给默认。
+  static String sanitizeName(String raw) {
+    final cleaned = raw.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+    if (cleaned.isEmpty) return '户型';
+    return cleaned.length > 40 ? cleaned.substring(0, 40) : cleaned;
+  }
+
   Future<Directory> _dir() async {
     final app = await getApplicationDocumentsDirectory();
     final dir = Directory('${app.path}/plans');
@@ -72,10 +85,68 @@ class PlanStore {
     return dir;
   }
 
+  /// 保存：同名且内容就是它自己 → 覆盖更新；同名但属于别的户型 → 加后缀。
   Future<String> save(FloorPlan plan) async {
-    final f = File('${(await _dir()).path}/${plan.name}.json');
-    await f.writeAsString(plan.toJsonString());
-    return f.path;
+    final dir = await _dir();
+    var name = sanitizeName(plan.name);
+    var target = File('${dir.path}/$name.json');
+    if (target.existsSync()) {
+      final storedName = _storedName(target);
+      if (storedName != null && storedName != plan.name) {
+        var n = 1;
+        while (true) {
+          final cand = File('${dir.path}/$name($n).json');
+          // 空位（不存在）或"我上次存的重名文件"（owner==本户型）→ 用它；
+          // 别人的重名文件绝不覆盖，继续找下一个后缀
+          if (!cand.existsSync() || _storedName(cand) == plan.name) {
+            target = cand;
+            break;
+          }
+          n++;
+        }
+      }
+    }
+    await target.writeAsString(plan.toJsonString());
+    return target.path;
+  }
+
+  /// 读出已存 JSON 的 name 字段（读不出来 → null，当作"无主"文件）。
+  String? _storedName(File f) {
+    try {
+      final m = RegExp('"name"\\s*:\\s*"([^"]*)"').firstMatch(f.readAsStringSync());
+      return m?.group(1);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 已存户型列表（按保存时间新→旧）。环境不支持（如单测）→ 空表。
+  Future<List<PlanEntry>> list() async {
+    final out = <PlanEntry>[];
+    try {
+      final dir = await _dir();
+      for (final f in dir.listSync().whereType<File>()) {
+        if (!f.path.endsWith('.json')) continue;
+        final j = FloorPlan.fromJsonString(f.readAsStringSync());
+        final st = f.statSync();
+        out.add(PlanEntry(
+          name: j.name,
+          path: f.path,
+          sizeBytes: st.size,
+          mtime: st.modified,
+        ));
+      }
+      out.sort((a, b) => b.mtime.compareTo(a.mtime));
+    } catch (_) {
+      // path_provider 不可用（桌面单测）→ 视为没有已存户型
+    }
+    return out;
+  }
+
+  Future<void> delete(PlanEntry e) async {
+    try {
+      await File(e.path).delete();
+    } catch (_) {}
   }
 
   Future<FloorPlan?> load(String name) async {
@@ -83,4 +154,24 @@ class PlanStore {
     if (!await f.exists()) return null;
     return FloorPlan.fromJsonString(await f.readAsString());
   }
+
+  Future<FloorPlan?> loadPath(String path) async {
+    final f = File(path);
+    if (!await f.exists()) return null;
+    return FloorPlan.fromJsonString(await f.readAsString());
+  }
+}
+
+/// 一条已存户型（列表用）。
+class PlanEntry {
+  final String name;
+  final String path;
+  final int sizeBytes;
+  final DateTime mtime;
+  PlanEntry({
+    required this.name,
+    required this.path,
+    required this.sizeBytes,
+    required this.mtime,
+  });
 }
