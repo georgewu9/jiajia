@@ -72,8 +72,6 @@ class _FloorplanEditorPageState
   _Sel? _sel;
   Vec2? _wallStart;
   final _cam = CameraCtrl();
-  Offset _lastPan = Offset.zero;
-  Offset _lastDrag = Offset.zero;
   bool _draggingItem = false;
   Size _canvasSize = const Size(360, 480);
 
@@ -118,44 +116,38 @@ class _FloorplanEditorPageState
               // 画布
               GestureDetector(
                 onScaleStart: (d) {
-                  _lastPan = d.focalPoint;
                   _draggingItem = false;
-                },
-                onScaleUpdate: (d) {
-                  _cam.zoom(d.focalPoint, d.scale);
-                  _cam.panBy(d.focalPoint - _lastPan);
-                  _lastPan = d.focalPoint;
-                },
-                onScaleEnd: (_) {},
-                onPanStart: (p) {
-                  _lastPan = p.localPosition;
-                  _lastDrag = p.localPosition;
-                  if (_tool == EditorTool.select && _sel != null && _sel!.type == 'item') {
-                    _draggingItem = true;
+                  if (d.pointerCount == 1 &&
+                      _tool == EditorTool.select &&
+                      _sel != null &&
+                      _sel!.type == 'item') {
+                    final w = _cam.toWorld(d.focalPoint);
+                    final hit = _hitTest(plan, w);
+                    _draggingItem =
+                        hit != null && hit.id == _sel!.id && hit.type == 'item';
                   }
                 },
-                onPanUpdate: (p) {
-                  final local = p.localPosition;
-                  if (_draggingItem) {
-                    final delta = local - _lastDrag;
+                onScaleUpdate: (d) {
+                  if (d.pointerCount >= 2) {
+                    _cam.zoom(d.focalPoint, d.scale);
+                    _cam.panBy(d.focalPointDelta);
+                  } else if (_draggingItem) {
                     final s = _sel;
                     ref.read(editorDocProvider.notifier).mutate((p2) {
                       final item = s == null ? null : p2.items[s.id];
                       if (item == null) return;
-                      item.pos = item.pos + Vec2(delta.dx / _cam.ppm, delta.dy / _cam.ppm);
+                      item.pos = item.pos +
+                          Vec2(d.focalPointDelta.dx / _cam.ppm,
+                              d.focalPointDelta.dy / _cam.ppm);
                     }, record: false);
-                    _lastDrag = local;
-                  } else if (_tool == EditorTool.select && _sel == null) {
-                    _cam.panBy(local - _lastPan);
-                    _lastPan = local;
                   } else {
-                    _cam.panBy(local - _lastPan);
-                    _lastPan = local;
+                    _cam.panBy(d.focalPointDelta);
                   }
                 },
-                onPanEnd: (_) {
+                onScaleEnd: (_) {
                   if (_draggingItem) {
-                    ref.read(editorDocProvider.notifier).mutate((p2) {}, record: true);
+                    ref.read(editorDocProvider.notifier)
+                        .mutate((p2) {}, record: true);
                     _draggingItem = false;
                   }
                 },
