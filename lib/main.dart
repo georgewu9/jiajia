@@ -47,6 +47,8 @@ class ErrorRoot extends StatefulWidget {
 }
 
 class _ErrorRootState extends State<ErrorRoot> {
+  bool _showDiag = false;
+
   @override
   void initState() {
     super.initState();
@@ -64,38 +66,94 @@ class _ErrorRootState extends State<ErrorRoot> {
           valueListenable: widget.panel,
           builder: (context, text, _) {
             if (text == null) return const SizedBox.shrink();
-            return Container(
-              color: const Color(0xEE141821),
-              padding: const EdgeInsets.all(16),
-              alignment: Alignment.topCenter,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                      '⚠ 运行异常 / 启动记录（把本屏截图发我即可定位）',
-                      style: TextStyle(color: JiajiaColors.err, fontSize: 13)),
-                  const SizedBox(height: 8),
-                  Flexible(
-                    child: SingleChildScrollView(
-                      child: SelectableText(
-                        text,
-                        style: const TextStyle(
-                            color: JiajiaColors.text1, fontSize: 11),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton(
-                      onPressed: () => widget.panel.value = null,
-                      child: const Text(
-                          '关闭',
-                          style: TextStyle(color: JiajiaColors.accent))),
-                ],
-              ),
+            return _DiagnosticScreen(
+              title: '⚠ 运行异常 / 启动记录（截图发我即可定位）',
+              content: text,
+              onClose: () => widget.panel.value = null,
             );
           },
         ),
+        // 诊断按钮：根级，即使下层界面全坏也能点
+        Positioned(
+          right: 12,
+          bottom: 88,
+          child: GestureDetector(
+            onTap: () => setState(() => _showDiag = !_showDiag),
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: JiajiaColors.raised,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: JiajiaColors.accent),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black54, blurRadius: 8),
+                ],
+              ),
+              child: const Icon(Icons.bug_report,
+                  size: 20, color: JiajiaColors.accent),
+            ),
+          ),
+        ),
+        if (_showDiag)
+          _DiagnosticScreen(
+            title: '启动诊断（长按文本可复制；截图发我）',
+            content: bootLog.panelText(liveError: widget.panel.value),
+            onClose: () => setState(() => _showDiag = false),
+          ),
       ],
+    );
+  }
+}
+
+/// 全屏诊断文本屏（SelectableText，截图即诊断数据）。
+class _DiagnosticScreen extends StatelessWidget {
+  final String title;
+  final String content;
+  final VoidCallback onClose;
+  const _DiagnosticScreen({
+    required this.title,
+    required this.content,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: Container(
+        color: const Color(0xF2141821),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(title,
+                style: const TextStyle(
+                    color: JiajiaColors.accent,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            Expanded(
+              child: SingleChildScrollView(
+                child: SelectableText(
+                  content,
+                  style: const TextStyle(
+                      color: JiajiaColors.text1,
+                      fontSize: 11,
+                      height: 1.5),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: onClose,
+                child: const Text('关闭',
+                    style: TextStyle(color: JiajiaColors.accent)),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
