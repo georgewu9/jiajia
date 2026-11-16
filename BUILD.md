@@ -26,3 +26,17 @@
 
 - 应用包名 `com.georgewu.jiajia`；GitHub `georgewu9/jiajia`（私有）。
 - 与 LUM（georgewu9/LUM）同技术栈，独立仓库，代码不混。
+
+## 本机 (aarch64 host) 出包配方 [2026-11-16 验证]
+
+1. **命令**（aapt2 必须覆盖到 SDK 的 shim 版，否则 daemon 起不来）：
+   ```bash
+   flutter build apk --release --target-platform android-arm64 \
+     --android-project-arg=android.aapt2FromMavenOverride=/home/ubuntu/Android/Sdk/build-tools/36.0.0/aapt2
+   ```
+2. 前置：NDK 28.2 x86 工具链（clang/ld.lld/llvm-objcopy/llvm-strip…）与 SDK cmake 3.22.1/ninja 均已套
+   aarch64 C shim（qemu-x86_64 + LD_LIBRARY_PATH 指向 NDK prebuilt lib）。flavor 驱动（ld.lld、llvm-strip/objcopy）
+   的真实 ELF 副本在 `/home/ubuntu/tools/ndk-link|ndk-llvm/`（basename 必须精确，否则 LLVM 调度回默认 flavor）。
+   配方细节见 x86-on-arm64 skill。
+3. strip 生效与否：APK 里 libflutter.so ≈ 11.7MB（未 strip 时 165MB）。strip 失败不挂构建，出包前 `unzip -l` 查一眼。
+4. jni(CMake) 编译走 qemu 模拟，全量 release 约 3 分钟。
