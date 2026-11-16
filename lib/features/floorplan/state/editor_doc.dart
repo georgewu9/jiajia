@@ -34,7 +34,8 @@ class EditorDoc {
 
 class EditorDocNotifier extends Notifier<EditorDoc> {
   @override
-  EditorDoc build() => EditorDoc.fresh(samplePlan());
+  EditorDoc build() =>
+      EditorDoc.fresh(FloorPlan()..name = '新建户型'); // 空白画布起步（示例走工具条）
 
   FloorPlan get plan => state.plan;
   bool get canUndo => state.undo.isNotEmpty;

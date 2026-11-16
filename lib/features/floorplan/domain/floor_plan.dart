@@ -53,20 +53,76 @@ class Wall {
 
 enum OpeningKind { door, window }
 
-/// 门/窗开洞：挂在某面墙上，offset = 距墙起点 a 的米数。
+/// 门型（家易量约定）：门洞=无门扇的洞口；单开门/双开门=平开门；移门=推拉门。
+enum DoorType { doorway, single, double, sliding }
+
+extension DoorTypeX on DoorType {
+  String get label => switch (this) {
+        DoorType.doorway => '门洞',
+        DoorType.single => '单开门',
+        DoorType.double => '双开门',
+        DoorType.sliding => '移门',
+      };
+
+  /// 默认宽（mm）。双开门 1500，移门 1000，其余 900。
+  int get defaultWidthMm => switch (this) {
+        DoorType.double => 1500,
+        DoorType.sliding => 1000,
+        _ => 900,
+      };
+
+  /// 默认高（mm）。
+  int get defaultHeightMm => switch (this) {
+        DoorType.double => 2100,
+        _ => 2000,
+      };
+}
+
+/// mm <-> m 换算（UI 一律 mm，模型一律 m）。
+int toMm(double m) => (m * 1000).round();
+double fromMm(num mm) => mm / 1000;
+
+/// 门/窗开洞：挂在某面墙上，offset = 距墙起点 a 的米数（即"离墙距离"）。
 class Opening {
   final String id;
   final String wallId;
   final OpeningKind kind;
+  DoorType doorType; // 仅 kind==door 有意义
   double offset;
   double width;
   double sill; // 窗台高（door 为 0）
+  double height; // 开洞高（门高 / 窗高，sill+height 为窗顶）
 
-  Opening({required this.id, required this.wallId, required this.kind, required this.offset, required this.width, this.sill = 0});
+  Opening({
+    required this.id,
+    required this.wallId,
+    required this.kind,
+    required this.offset,
+    required this.width,
+    this.sill = 0,
+    this.doorType = DoorType.single,
+    double? height,
+  }) : height = height ??
+          (kind == OpeningKind.window ? 1.5 : doorType.defaultHeightMm / 1000);
+
+  String get label {
+    final w = toMm(width), h = toMm(height);
+    if (kind == OpeningKind.window) {
+      final s = toMm(sill);
+      return s > 0 ? '窗 $w×$h(台$s)' : '窗 $w×$h';
+    }
+    return '${doorType.label} $w×$h';
+  }
 
   Map<String, dynamic> toJson() => {
-        'id': id, 'wall': wallId, 'kind': kind.name,
-        'off': offset.roundToFraction(100), 'w': width, 'sill': sill,
+        'id': id,
+        'wall': wallId,
+        'kind': kind.name,
+        'dt': doorType.name,
+        'off': offset.roundToFraction(100),
+        'w': width,
+        'sill': sill,
+        'ht': height,
       };
 }
 
@@ -158,13 +214,23 @@ class FloorPlan {
       p._seq = p.maxSeq(p._seq, wall.id, 'w');
     }
     for (final o in (j['openings'] as List<dynamic>).cast<Map<String, dynamic>>()) {
+      final kind = OpeningKind.values.firstWhere((k) => k.name == o['kind'],
+          orElse: () => OpeningKind.door);
+      DoorType dt;
+      try {
+        dt = DoorType.values.firstWhere((d) => d.name == o['dt']);
+      } catch (_) {
+        dt = DoorType.single;
+      }
       p.openings[o['id'] as String] = Opening(
         id: o['id'] as String,
         wallId: o['wall'] as String,
-        kind: OpeningKind.values.firstWhere((k) => k.name == o['kind']),
+        kind: kind,
+        doorType: dt,
         offset: (o['off'] as num).toDouble(),
         width: (o['w'] as num).toDouble(),
         sill: (o['sill'] as num?)?.toDouble() ?? 0,
+        height: (o['ht'] as num?)?.toDouble(), // null → 按 kind/dt 默认
       );
       p._seq = p.maxSeq(p._seq, o['id'] as String, 'o');
     }
@@ -185,6 +251,22 @@ class FloorPlan {
     if (m == null) return cur;
     final n = int.tryParse(m.group(1)!) ?? cur;
     return n >= cur ? n + 1 : cur;
+  }
+
+  /// 导入另一户型的全部内容（示例户型 / 复制粘贴用），同步 id 序列防撞号。
+  void importPlan(FloorPlan other) {
+    for (final w in other.walls.values) {
+      walls[w.id] = w;
+      _seq = maxSeq(_seq, w.id, 'w');
+    }
+    for (final o in other.openings.values) {
+      openings[o.id] = o;
+      _seq = maxSeq(_seq, o.id, 'o');
+    }
+    for (final i in other.items.values) {
+      items[i.id] = i;
+      _seq = maxSeq(_seq, i.id, 'i');
+    }
   }
 }
 
