@@ -146,40 +146,51 @@ class _FloorplanEditorPageState
           _canvasSize = c.biggest;
           return Stack(
             children: [
-              // 画布。手势分层：
-              //  外层 = 双指缩放 + 单击/双击；内层 pan = 按工具分发
-              //  （画墙工具：单指拖拽画墙；其它工具：单指平移画布/拖家具）
+              // 画布。手势全部挂在同一个 GestureDetector（scale 是 pan 的超集）：
+              //  单指 → 平移/画墙/拖家具（onScale* 的 pointerCount==1 分支）
+              //  双指 → 缩放（pointerCount>=2 分支，接管时丢弃单指草稿）
+              //  单击/双击 → 选中 / 墙面板
+              // 坑①：同一 detector 不能既写 onPan* 又写 onScale*（框架断言 scale 是超集）
+              // 坑②：拆成嵌套两层也不行——外层 scale 识别器会抢走单指拖拽（画墙无反应）
               GestureDetector(
+                // 坑③（本 Bug 根因）：CustomPaint 无 child 时该 detector 区域不可命中，
+                // 单指拖/画墙事件根本到不了识别器 → 加 SizedBox.expand() 撑满区域
+                // + opaque 兜底（实测 3.47.9：仅 opaque 不够，必须有 child 区域）
+                behavior: HitTestBehavior.opaque,
+                key: const ValueKey('cv'),
                 onScaleStart: (d) {
-                  if (d.pointerCount == 1) _draggingItem = false;
+                  if (d.pointerCount == 1) {
+                    _panStart(d.focalPoint, plan); // 按当前工具分发
+                  }
                 },
                 onScaleUpdate: (d) {
                   if (d.pointerCount >= 2) {
+                    _panCancel(); // 双指接管：丢弃单指草稿/家具拖拽
                     _cam.zoom(d.focalPoint, d.scale);
                     _cam.panBy(d.focalPointDelta);
                     setState(() {});
+                  } else {
+                    _panUpdateAt(d.focalPoint, d.focalPointDelta, plan);
                   }
+                },
+                onScaleEnd: (d) {
+                  _panEnd(plan);
                 },
                 onTapUp: (d) => _handleTap(d.localPosition, plan, c.biggest),
                 onDoubleTapDown: (d) =>
                     _handleDoubleTap(d.localPosition, plan, c.biggest),
-                child: GestureDetector(
-                  onPanStart: (d) => _panStart(d.localPosition, plan),
-                  onPanUpdate: (d) => _panUpdate(d, plan),
-                  onPanEnd: (d) => _panEnd(plan),
-                  onPanCancel: _panCancel,
-                  child: CustomPaint(
-                    painter: _PlanPainter(
-                      plan: plan,
-                      cam: _cam,
-                      sel: _sel,
-                      draft: _tool == EditorTool.wall
-                          ? (_wallStart == null
-                              ? null
-                              : (_wallStart!, _wallCur ?? _wallStart!))
-                          : null,
-                    ),
+                child: CustomPaint(
+                  painter: _PlanPainter(
+                    plan: plan,
+                    cam: _cam,
+                    sel: _sel,
+                    draft: _tool == EditorTool.wall
+                        ? (_wallStart == null
+                            ? null
+                            : (_wallStart!, _wallCur ?? _wallStart!))
+                        : null,
                   ),
+                  child: const SizedBox.expand(),
                 ),
               ),
               // 空画布引导
@@ -527,10 +538,11 @@ class _FloorplanEditorPageState
     }
   }
 
-  void _panUpdate(DragUpdateDetails d, FloorPlan plan) {
+  /// 单指移动（scale 识别器的 1 指分支）：local=当前指位，delta=指位移。
+  void _panUpdateAt(Offset local, Offset delta, FloorPlan plan) {
     switch (_tool) {
       case EditorTool.wall:
-        _wallCur = _snapPoint(_cam.toWorld(d.localPosition), plan);
+        _wallCur = _snapPoint(_cam.toWorld(local), plan);
         setState(() {});
       case EditorTool.select:
         if (_draggingItem && _sel != null) {
@@ -538,15 +550,15 @@ class _FloorplanEditorPageState
                 final item = p2.items[_sel!.id];
                 if (item == null) return;
                 item.pos = item.pos +
-                    Vec2(d.delta.dx / _cam.ppm, d.delta.dy / _cam.ppm);
+                    Vec2(delta.dx / _cam.ppm, delta.dy / _cam.ppm);
               },
               record: false);
         } else {
-          _cam.panBy(d.delta);
+          _cam.panBy(delta);
           setState(() {});
         }
       default:
-        _cam.panBy(d.delta);
+        _cam.panBy(delta);
         setState(() {});
     }
   }
@@ -983,11 +995,10 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
                     fontSize: 12,
                     fontWeight: FontWeight.w600)),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                mmField('尺寸', _lenC),
-                mmField('墙高', _hC),
-                mmField('墙厚', _tC),
+                Expanded(child: mmField('尺寸', _lenC)),
+                Expanded(child: mmField('墙高', _hC)),
+                Expanded(child: mmField('墙厚', _tC)),
               ],
             ),
             Align(
@@ -1021,11 +1032,10 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
             ),
             const SizedBox(height: 8),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                mmField('离墙距离', _offC),
-                mmField('宽', _wC),
-                mmField(_asWindow ? '窗高' : '门高', _ohC),
+                Expanded(child: mmField('离墙距离', _offC)),
+                Expanded(child: mmField('宽', _wC)),
+                Expanded(child: mmField(_asWindow ? '窗高' : '门高', _ohC)),
               ],
             ),
             if (_asWindow)
@@ -1033,7 +1043,7 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
                 padding: const EdgeInsets.only(top: 6),
                 child: Row(
                   children: [
-                    mmField('窗台高', _sillC),
+                    Expanded(child: mmField('窗台高', _sillC)),
                   ],
                 ),
               ),
