@@ -15,7 +15,10 @@ import '../floorplan/state/editor_doc.dart';
 ///  Dart → JS：window.jiajia.setPlan(jsonString) / setMode('top'|'orbit'|'first')
 ///  JS → Dart：channel 'dart' 收 {type:'ready'|'planLoaded'|'mode', ...}
 class Viewer3dPage extends ConsumerStatefulWidget {
-  const Viewer3dPage({super.key});
+  /// 仅当所在 tab 激活时才真正创建 WebView（IndexedStack 启动即构建子树，
+  /// 避免首帧就碰平台视图）。
+  final bool active;
+  const Viewer3dPage({super.key, this.active = true});
 
   @override
   ConsumerState<Viewer3dPage> createState() => _Viewer3dPageState();

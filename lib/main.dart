@@ -7,18 +7,65 @@ import 'features/viewer3d/viewer3d_page.dart';
 
 /// jiajia：画户型 → 摆家具 → 3D 浏览。
 void main() {
-  runApp(const ProviderScope(child: JiajiaApp()));
+  final errNotif = ValueNotifier<String?>(null);
+  // 白屏自救：任何 build/运行时异常都在这里被接住，屏幕上直接可见
+  FlutterError.onError = (details) {
+    errNotif.value = '${details.exception}\n\n${details.stack}';
+    debugPrint('jiajia error: ${details.exception}');
+  };
+  runApp(
+    ProviderScope(
+      child: JiajiaApp(errNotif: errNotif),
+    ),
+  );
 }
 
 class JiajiaApp extends StatelessWidget {
-  const JiajiaApp({super.key});
+  final ValueNotifier<String?> errNotif;
+  const JiajiaApp({super.key, required this.errNotif});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'jiajia',
       theme: JiajiaTheme.dark,
-      home: const HomePage(),
+      home: Stack(
+        children: [
+          const HomePage(),
+          // 设备侧错误面板（release 白屏时能直接看到异常文本）
+          ValueListenableBuilder<String?>(
+            valueListenable: errNotif,
+            builder: (context, err, _) {
+              if (err == null) return const SizedBox.shrink();
+              return Container(
+                color: const Color(0xEE141821),
+                padding: const EdgeInsets.all(16),
+                alignment: Alignment.topCenter,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('⚠ 运行异常（发截图给我即可定位）',
+                        style: TextStyle(color: JiajiaColors.err, fontSize: 13)),
+                    const SizedBox(height: 8),
+                    Flexible(
+                      child: SelectableText(
+                        err,
+                        style: const TextStyle(
+                            color: JiajiaColors.text1, fontSize: 11),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextButton(
+                        onPressed: () => errNotif.value = null,
+                        child: const Text('忽略',
+                            style: TextStyle(color: JiajiaColors.accent))),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 }
@@ -40,12 +87,14 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final pages = [
-      const FloorplanEditorPage(),
-      const Viewer3dPage(),
-    ];
     return Scaffold(
-      body: IndexedStack(index: _tab, children: pages),
+      body: IndexedStack(
+        index: _tab,
+        children: [
+          const FloorplanEditorPage(),
+          Viewer3dPage(active: _tab == 1),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: (i) => setState(() => _tab = i),
