@@ -1585,17 +1585,31 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   }
 
   _Sel? _hitTest(FloorPlan plan, Vec2 w) {
+    // v0.1.21 修复：开洞命中必须同时满足 ①点在墙命中带内（垂直距离 ≤ 墙厚/2+0.35）
+    // ②投影 offset 落在洞宽±容差内。旧代码只查投影不查距离，两扇相邻墙的门
+    // 在角落处互相"抢命中"（如左上单门被右上双门截走）。
+    _Sel? bestOpen;
+    double bestOpenScore = double.infinity;
     for (final o in plan.openings.values) {
       final wall = plan.walls[o.wallId];
       if (wall == null) continue;
       final t = _paramOnWall(wall, w);
       if (t == null) continue;
+      // ① 垂直距离门槛
+      final proj = wall.a + (wall.b - wall.a) * t;
+      final dist = w.distanceTo(proj);
+      if (dist > wall.thickness / 2 + 0.35) continue;
+      // ② offset 命中带
       final off = wall.length * t;
-      // v0.1.20：命中带从 0.05 放宽到 0.15（小洞口在 fit 缩放下也只有 ~20px，手指很难精确点中；用户报「双击选中门窗很不容易」）
       if ((off - o.offset).abs() < o.width / 2 + 0.15) {
-        return _Sel(o.id, 'opening');
+        // 取最近（垂直距离最小）的开洞，避免同一条墙上两个门重叠时误选
+        if (dist < bestOpenScore) {
+          bestOpenScore = dist;
+          bestOpen = _Sel(o.id, 'opening');
+        }
       }
     }
+    if (bestOpen != null) return bestOpen;
     final walls = _hitWall(plan, w);
     if (walls != null) return walls;
     for (final i in plan.items.values) {
