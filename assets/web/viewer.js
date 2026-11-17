@@ -30,6 +30,24 @@
     coffee: [1.1, 0.6, 0.4, 0xa8896a],
     shoe: [0.8, 0.35, 1.0, 0x8f6f52],
     shelf: [0.8, 0.3, 1.8, 0x9c7a5a],
+    // 原 app「模型」模块（柱/楼梯/台面/五金），与 Dart FurnitureCatalog 对齐
+    pillar: [0.4, 0.4, 2.8, 0xb8b2a6],
+    roundPillar: [0.4, 0.4, 2.8, 0xd8d4ca],
+    stair: [1.2, 2.6, 2.8, 0x8b93a5],
+    stairL: [1.2, 2.6, 2.8, 0x7d8a94],
+    stairR: [1.2, 2.6, 2.8, 0x99a5b5],
+    vanity: [0.9, 0.45, 0.8, 0xa8896a],
+    gasStove: [0.75, 0.65, 0.85, 0x9aa4ab],
+    gasCupboard: [0.6, 0.65, 1.9, 0x9c7a5a],
+    drain: [0.15, 0.15, 0.05, 0x7d8a94],
+    pipe: [0.1, 0.3, 2.8, 0x7d8a94],
+    meterBox: [0.4, 0.12, 0.6, 0x8a97a1],
+    waterMeter: [0.3, 0.25, 0.4, 0x8fa8b8],
+    radiator: [1.2, 0.12, 0.8, 0xcc9a6e],
+    acSlot: [0.7, 0.7, 0.1, 0x6e7a84],
+    socketWall: [0.1, 0.1, 0.1, 0x6fcf97],
+    socketFloor: [0.12, 0.12, 0.02, 0x6fcf97],
+    switchPanel: [0.1, 0.1, 0.1, 0xe5c97a],
   };
 
   var scene = new THREE.Scene();

@@ -8,6 +8,7 @@ import '../../../app/theme.dart';
 import '../../../diag/boot_log.dart' show bootLog;
 import '../domain/floor_plan.dart';
 import '../domain/model_assets.dart';
+import '../domain/model_items.dart';
 import '../state/editor_doc.dart';
 import '../../viewer3d/viewer3d_page.dart';
 
@@ -81,6 +82,8 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   bool _showAreas = false; // 面积标注开关
   String _roomsSig = '';
   List<RoomLoop> _rooms = const [];
+  ModelSpec? _pendingModel; // 「模型」面板选中的待放置项（门/窗贴墙，柱/楼梯/台面摆地）
+  int? _mergeFrom; // 合并房：待合并的房间下标（点相邻房间完成）
 
   @override
   void initState() {
@@ -206,7 +209,8 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                                 ? null
                                 : (_wallStart!, _wallCur ?? _wallStart!))
                           : null,
-                      rooms: _showAreas ? _roomsOf(plan) : const [],
+                      rooms: _roomsOf(plan),
+                      showAreas: _showAreas,
                     ),
                     child: const SizedBox.expand(),
                   ),
@@ -269,6 +273,31 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                     onClear: () => setState(() => _sel = null),
                   ),
                 ),
+              // 选中房间时：拆/合/删 操作条（原 app 分房入口）
+              if (_sel?.type == 'room')
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 64,
+                  child: _RoomActionBar(
+                    roomIdx: int.tryParse(
+                            _sel!.id.replaceFirst('room:', '')) ??
+                        0,
+                    onSplit: () {
+                      final i = _roomIndexOf();
+                      if (i != null) _openSplitDialog(i);
+                    },
+                    onMerge: () {
+                      final i = _roomIndexOf();
+                      if (i != null) _armMerge(i);
+                    },
+                    onRemove: () {
+                      final i = _roomIndexOf();
+                      if (i != null) _removeRoom(i);
+                    },
+                    onClear: () => setState(() => _sel = null),
+                  ),
+                ),
             ],
           );
         },
@@ -321,6 +350,12 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                       _openModelSheet,
                     ),
                     _toolChip(
+                      '模型',
+                      EditorTool.furniture,
+                      Icons.architecture,
+                      _openModelItemsSheet,
+                    ),
+                    _toolChip(
                       '删除',
                       EditorTool.erase,
                       Icons.delete_outline,
@@ -348,18 +383,37 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     children: [
-                      for (final k in FurnitureCatalog.kinds)
+                      if (_pendingModel != null)
                         Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: ChoiceChip(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: ActionChip(
+                            avatar: Icon(
+                              Icons.touch_app,
+                              size: 14,
+                              color: JiajiaColors.accent,
+                            ),
                             label: Text(
-                              FurnitureCatalog.labelOf(k),
+                              '放：${_pendingModel!.label} → 点${_pendingModel!.place == ModelPlace.wall ? '墙' : '画布'}（点「选择」结束）',
                               style: const TextStyle(fontSize: 12),
                             ),
-                            selected: _furnKind == k,
-                            onSelected: (_) => setState(() => _furnKind = k),
+                            backgroundColor: JiajiaColors.accentSoft,
+                            side: const BorderSide(color: JiajiaColors.accent),
                           ),
-                        ),
+                        )
+                      else
+                        for (final k in FurnitureCatalog.kinds)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: ChoiceChip(
+                              label: Text(
+                                FurnitureCatalog.labelOf(k),
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              selected: _furnKind == k,
+                              onSelected: (_) =>
+                                  setState(() => _furnKind = k),
+                            ),
+                          ),
                     ],
                   ),
                 ),
@@ -403,6 +457,8 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     _tool = t;
     _sel = null;
     _wallStart = _wallCur = null;
+    if (t != EditorTool.furniture) _pendingModel = null;
+    _mergeFrom = null;
   });
 
   // ---------------- 一键建房间 / 面积标注 ----------------
@@ -608,6 +664,194 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     _toast('已放 ${asset.label}：2D 为占地框，切 3D 看真实形状');
   }
 
+  // ---------------- 模型（原 app「模型」模块：门/窗/柱/楼梯/台面五金） ----------------
+
+  /// 模型面板：5 类 tab + 图标网格（原 app draw/ 图标）。选中 → 进入放置模式。
+  void _openModelItemsSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: JiajiaColors.surface,
+      builder: (ctx) {
+        int catIdx = 0;
+        return StatefulBuilder(
+          builder: (ctx2, setIt) {
+            final cat = ModelItems.categories[catIdx];
+            final items = ModelItems.ofCategory(cat);
+            return DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: 0.6,
+              minChildSize: 0.4,
+              maxChildSize: 0.9,
+              builder: (BuildContext c, ScrollController sc) => Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '模型 · $cat（${items.length} 件）',
+                            style: const TextStyle(
+                              color: JiajiaColors.text1,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const Text(
+                          '原 app 同款图标',
+                          style: TextStyle(color: JiajiaColors.text2, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(
+                    height: 36,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      children: [
+                        for (var i = 0; i < ModelItems.categories.length; i++)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: ChoiceChip(
+                              label: Text(
+                                ModelItems.categories[i],
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              selected: i == catIdx,
+                              onSelected: (_) => setIt(() => catIdx = i),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: GridView.builder(
+                      padding: const EdgeInsets.all(12),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            mainAxisSpacing: 8,
+                          ),
+                      itemCount: items.length,
+                      itemBuilder: (_, j) {
+                        final m = items[j];
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(10),
+                          onTap: () {
+                            _startPlacingModel(m);
+                            Navigator.pop(ctx2);
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            decoration: BoxDecoration(
+                              color: JiajiaColors.raised,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: JiajiaColors.line),
+                            ),
+                            child: Column(
+                              children: [
+                                Image.asset(
+                                  m.icon,
+                                  width: 34,
+                                  height: 34,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (_, _, _) => Icon(
+                                    m.place == ModelPlace.wall
+                                        ? Icons.open_in_full
+                                        : Icons.category,
+                                    color: JiajiaColors.text2,
+                                    size: 26,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  m.label,
+                                  style: const TextStyle(
+                                    color: JiajiaColors.text1,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                Text(
+                                  m.specText,
+                                  style: TextStyle(
+                                    color: JiajiaColors.text2,
+                                    fontSize: 9,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// 进入放置模式：门/窗 → 点墙开洞；柱/楼梯/台面五金 → 点地面摆放。
+  void _startPlacingModel(ModelSpec m) {
+    _setTool(EditorTool.furniture);
+    _pendingModel = m;
+    _toast(m.place == ModelPlace.wall
+        ? '放置「${m.label}」：点一面墙开洞（可连续放，点「选择」结束）'
+        : '放置「${m.label}」：点画布摆放（可连续放，点「选择」结束）');
+  }
+
+  void _placeModelItem(Offset local, FloorPlan plan) {
+    final m = _pendingModel;
+    if (m == null) return;
+    final notifier = ref.read(editorDocProvider.notifier);
+    final world = _cam.toWorld(local);
+    if (m.place == ModelPlace.wall) {
+      final hit = _hitWall(plan, world);
+      if (hit == null) {
+        _toast('点不到墙：门窗要贴着墙放，先点一面墙');
+        return;
+      }
+      final wall = plan.walls[hit.id]!;
+      // 点处投影到墙（offset = 距墙起点 a 的距离）
+      final dv = world - wall.a;
+      final ab = wall.b - wall.a;
+      final alen = ab.length;
+      final t = alen == 0 ? 0.0 : (dv.dx * ab.dx + dv.dy * ab.dy) / alen;
+      final wM = m.defaultWmm / 1000;
+      final off = (t.clamp(0.0, wall.length) - wM / 2).clamp(0.02, wall.length - wM / 2);
+      final oid = plan.newId('o');
+      notifier.mutate((p) {
+        p.openings[oid] = Opening(
+          id: oid,
+          wallId: hit.id,
+          kind: m.kind,
+          doorType: m.kind == OpeningKind.door ? m.doorType : DoorType.single,
+          offset: m.noLeaf ? t.clamp(0.0, wall.length) : off,
+          width: wM,
+          sill: m.sillMm / 1000,
+          height: m.heightMm / 1000,
+        );
+      });
+      _toast('${m.noLeaf ? '开洞' : '已开'} ${m.specText}');
+    } else {
+      final fid = plan.newId('i');
+      notifier.mutate((p) {
+        p.items[fid] = FurnitureItem(
+          id: fid,
+          kind: m.floorKind ?? FurnitureKind.asset,
+          pos: _snapPoint(world, plan),
+        );
+        _sel = _Sel(fid, 'item');
+      });
+      _toast('已放「${m.label}」（选「选择」后可拖动位置）');
+    }
+  }
+
   /// 画布（CustomPaint）相对全局的左上角。
   /// 坑④（Flutter 3.47.9 实测）：同一 detector 里不同识别器坐标空间不一致——
   ///  · scale 识别器（onScale*）的 focalPoint 是【全局（窗口）坐标】，
@@ -811,7 +1055,34 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
         setState(() => _sel = hit);
         break;
       case EditorTool.select:
-        setState(() => _sel = _hitTest(plan, world));
+        final hit = _hitTest(plan, world);
+        if (hit != null) {
+          _mergeFrom = null;
+          setState(() => _sel = hit);
+        } else {
+          // 点空处 → 选房间（原 app 分房/合并入口）
+          final rooms = _roomsOf(plan);
+          var idx = -1;
+          for (var i = 0; i < rooms.length; i++) {
+            if (plan.roomContains(rooms[i], world)) {
+              idx = i;
+              break;
+            }
+          }
+          if (idx < 0) {
+            setState(() => _sel = null);
+            _mergeFrom = null;
+          } else {
+            final rooms2 = _roomsOf(plan);
+            if (_mergeFrom != null && _mergeFrom! < rooms2.length) {
+              _tryMerge(rooms2[_mergeFrom!], rooms2[idx]);
+              _mergeFrom = null;
+              setState(() => _sel = null);
+            } else {
+              setState(() => _sel = _Sel('room:$idx', 'room'));
+            }
+          }
+        }
         break;
       case EditorTool.opening:
         final wallSel = _hitWall(plan, world);
@@ -822,16 +1093,20 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
         }
         break;
       case EditorTool.furniture:
-        notifier.mutate((p) {
-          final id = p.newId('i');
-          p.items[id] = FurnitureItem(
-            id: id,
-            kind: _furnKind,
-            pos: _snapPoint(world, plan),
-            rotationDeg: 0,
-          );
-          _sel = _Sel(id, 'item');
-        });
+        if (_pendingModel != null) {
+          _placeModelItem(local, plan);
+        } else {
+          notifier.mutate((p) {
+            final id = p.newId('i');
+            p.items[id] = FurnitureItem(
+              id: id,
+              kind: _furnKind,
+              pos: _snapPoint(world, plan),
+              rotationDeg: 0,
+            );
+            _sel = _Sel(id, 'item');
+          });
+        }
         break;
       case EditorTool.erase:
         final hit = _hitTest(plan, world);
@@ -876,6 +1151,115 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   void _toast(String m) {
     ScaffoldMessenger.maybeOf(context)
         ?.showSnackBar(SnackBar(content: Text(m)));
+  }
+
+  // ---------------- 房间操作：拆 / 合 / 删（原 app「分房/合并」） ----------------
+
+  int? _roomIndexOf() {
+    if (_sel?.type != 'room') return null;
+    final n = int.tryParse(_sel!.id.replaceFirst('room:', ''));
+    return n;
+  }
+
+  /// 点「合并」后：记录来源房间，等用户点相邻房间。
+  void _armMerge(int idx) {
+    _mergeFrom = idx;
+    _toast('点一个与它相邻的房间 → 合并（删共用隔墙）');
+    setState(() {});
+  }
+
+  void _tryMerge(RoomLoop a, RoomLoop b) {
+    final plan = ref.read(editorDocProvider).plan;
+    final shared = plan.sharedWallBetween(a, b);
+    if (shared == null) {
+      _toast('两个房间不相邻（没有共用隔墙），不能合并');
+      return;
+    }
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        backgroundColor: JiajiaColors.surface,
+        title: const Text('合并房间', style: TextStyle(color: JiajiaColors.text1)),
+        content: const Text(
+          '合并将删除两房间之间的隔墙（含该墙上的门窗开洞）？',
+          style: TextStyle(color: JiajiaColors.text2),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              ref.read(editorDocProvider.notifier).mutate((p) {
+                p.mergeRooms(a, b);
+              });
+              _sel = null;
+              _mergeFrom = null;
+              Navigator.pop(c);
+              messenger?.showSnackBar(
+                const SnackBar(content: Text('已合并：隔墙已删除')),
+              );
+            },
+            child: const Text('合并', style: TextStyle(color: JiajiaColors.accent)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 拆房面板（DSS 同款，坑⑤）：方向（竖/横）+ 位置比例 + 是否加门。
+  void _openSplitDialog(int roomIdx) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: JiajiaColors.surface,
+      builder: (_) => _SplitDialog(roomIdx: roomIdx),
+    );
+  }
+
+  /// 删除房间：删不共用的墙（外墙保留）。
+  void _removeRoom(int roomIdx) {
+    final plan = ref.read(editorDocProvider).plan;
+    final rooms = plan.roomLoops();
+    if (roomIdx >= rooms.length) {
+      _toast('房间已变化，请重新点选');
+      _sel = null;
+      return;
+    }
+    final loop = rooms[roomIdx];
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        backgroundColor: JiajiaColors.surface,
+        title: const Text('删除房间', style: TextStyle(color: JiajiaColors.text1)),
+        content: Text(
+          '删除该房间的隔墙（与其他房间/外部共用的外墙会保留）？',
+          style: const TextStyle(color: JiajiaColors.text2),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              var n = 0;
+              ref.read(editorDocProvider.notifier).mutate((p) {
+                n = p.removeRoomWalls(loop);
+              });
+              _sel = null;
+              Navigator.pop(c);
+              messenger?.showSnackBar(SnackBar(
+                content: Text(n > 0 ? '已删除 $n 面隔墙' : '该房间全为共用墙，未删除'),
+              ));
+            },
+            child: const Text('删除', style: TextStyle(color: JiajiaColors.accent)),
+          ),
+        ],
+      ),
+    );
   }
 
   /// 墙的完整编辑面板：尺寸 mm（长/墙高/墙厚）+ 开洞（门型/离墙距离/宽/高）。
@@ -1003,6 +1387,205 @@ class _WallActionBar extends StatelessWidget {
       onPressed: cb,
     ),
   );
+}
+
+/// 选中房间的操作条（原 app 分房/合并入口）：面积 + 拆房/合并/删除。
+class _RoomActionBar extends ConsumerWidget {
+  final int roomIdx;
+  final VoidCallback onSplit;
+  final VoidCallback onMerge;
+  final VoidCallback onRemove;
+  final VoidCallback onClear;
+  const _RoomActionBar({
+    required this.roomIdx,
+    required this.onSplit,
+    required this.onMerge,
+    required this.onRemove,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final plan = ref.read(editorDocProvider).plan;
+    final loop = ref.read(editorDocProvider).plan.roomLoops()[
+        roomIdx < _roomsCount(ref, plan) ? roomIdx : 0];
+    final m2 = (loop.area * 100).roundToDouble() / 100;
+    return Container(
+      color: JiajiaColors.raised,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '房间 · ${m2.toStringAsFixed(1)}㎡（${loop.walls.length} 面墙）',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: JiajiaColors.text2,
+                  ),
+                ),
+              ),
+              _act('拆房', Icons.call_split, onSplit),
+              _act('合并', Icons.merge, onMerge),
+              _act('删除', Icons.delete_outline, onRemove),
+              _act('取消', Icons.close, onClear),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  int _roomsCount(WidgetRef ref, FloorPlan p) => p.roomLoops().length;
+
+  Widget _act(String label, IconData icon, VoidCallback cb) => Padding(
+        padding: const EdgeInsets.only(left: 4),
+        child: TextButton.icon(
+          icon: Icon(icon, size: 15),
+          label: Text(label, style: const TextStyle(fontSize: 12)),
+          onPressed: cb,
+        ),
+      );
+}
+
+/// 拆房面板：方向（竖/横）+ 位置比例（10~90%）+ 是否加门。
+/// 坑⑤：BottomSheet 内容用 DraggableScrollableSheet（与墙面板同款）。
+class _SplitDialog extends ConsumerStatefulWidget {
+  final int roomIdx;
+  const _SplitDialog({required this.roomIdx});
+
+  @override
+  ConsumerState<_SplitDialog> createState() => _SplitDialogState();
+}
+
+class _SplitDialogState extends ConsumerState<_SplitDialog> {
+  String _axis = 'v'; // v=竖直隔墙（分左右） h=水平隔墙（分上下）
+  double _frac = 0.5;
+  bool _withDoor = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final plan = ref.read(editorDocProvider).plan;
+    final idx = widget.roomIdx;
+    final loop = idx < plan.roomLoops().length
+        ? plan.roomLoops()[idx]
+        : null;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.5,
+      minChildSize: 0.4,
+      maxChildSize: 0.8,
+      builder: (BuildContext c, ScrollController sc) => ListView(
+        controller: sc,
+        padding: const EdgeInsets.all(16),
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '拆房（房间 ${m2Text(loop)}）',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: JiajiaColors.text1,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, size: 20),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+          if (loop == null)
+            const Padding(
+              padding: EdgeInsets.all(12),
+              child: Text(
+                '房间已变化，请重新点选',
+                style: TextStyle(color: JiajiaColors.text2),
+              ),
+            )
+          else ...[
+            Row(
+              children: [
+                _axisChip('左右分（竖直墙）', 'v', _axis, () => setState(() => _axis = 'v')),
+                const SizedBox(width: 8),
+                _axisChip('上下分（水平墙）', 'h', _axis, () => setState(() => _axis = 'h')),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Text(
+                  '位置 ${( _frac * 100).round() }%',
+                  style: const TextStyle(color: JiajiaColors.text2, fontSize: 12),
+                ),
+                Expanded(
+                  child: Slider(
+                    value: _frac,
+                    min: 0.1,
+                    max: 0.9,
+                    divisions: 8,
+                    onChanged: (v) => setState(() => _frac = v),
+                  ),
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                Checkbox(
+                  value: _withDoor,
+                  onChanged: (v) => setState(() => _withDoor = v ?? true),
+                ),
+                const Text('隔墙加门（900）', style: TextStyle(fontSize: 12)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () {
+                  var ok = false;
+                  ref.read(editorDocProvider.notifier).mutate((p) {
+                    ok = p.splitRoom(
+                            loop,
+                            axis: _axis,
+                            frac: _frac,
+                            withDoor: _withDoor) !=
+                        null;
+                  });
+                  Navigator.pop(context);
+                  messenger?.showSnackBar(SnackBar(
+                    content: Text(
+                      ok
+                          ? '已拆房：隔墙 + ${_withDoor ? '门' : ''}'
+                          : '该房间太小或非轴对齐，拆不了',
+                    ),
+                  ));
+                },
+                icon: const Icon(Icons.call_split, size: 18),
+                label: const Text('拆分'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String? m2Text(RoomLoop? l) => l == null ? '' : '${(l.area * 100).roundToDouble() / 100}㎡';
+
+  Widget _axisChip(String label, String val, String cur, VoidCallback cb) {
+    final on = cur == val;
+    return ActionChip(
+      label: Text(label, style: TextStyle(fontSize: 12, color: on ? JiajiaColors.accent : JiajiaColors.text1)),
+      backgroundColor: on ? JiajiaColors.accentSoft : JiajiaColors.raised,
+      side: BorderSide(color: on ? JiajiaColors.accent : JiajiaColors.line),
+      onPressed: cb,
+    );
+  }
 }
 
 /// 墙编辑面板（双击墙 / 开洞工具 / 操作条 共用）：
@@ -1295,7 +1878,8 @@ class _PlanPainter extends CustomPainter {
   final CameraCtrl cam;
   final _Sel? sel;
   final (Vec2, Vec2)? draft; // 画墙拖拽中：(起点, 实时终点)
-  final List<RoomLoop> rooms; // 房间环（面积标注）
+  final List<RoomLoop> rooms; // 房间环（面积标注 + 选中高亮）
+  final bool showAreas;
 
   _PlanPainter({
     required this.plan,
@@ -1303,17 +1887,47 @@ class _PlanPainter extends CustomPainter {
     required this.sel,
     this.draft,
     this.rooms = const [],
+    this.showAreas = true,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawColor(JiajiaColors.bgBase, BlendMode.src);
     _paintGrid(canvas, size);
-    if (rooms.isNotEmpty) _paintRooms(canvas);
+    if (rooms.isNotEmpty && showAreas) _paintRooms(canvas);
     _paintWalls(canvas);
     _paintItems(canvas);
     _paintSelection(canvas);
+    if (sel?.type == 'room') _paintSelRoom(canvas);
     if (draft != null) _paintWallDraft(canvas, draft!.$1, draft!.$2);
+  }
+
+  /// 选中房间：外轮廓高亮（accent 描边 + 半透明填充）。
+  void _paintSelRoom(Canvas canvas) {
+    final i = int.tryParse(sel!.id.replaceFirst('room:', ''));
+    if (i == null || i >= rooms.length) return;
+    final nodes = plan.orderedNodes(rooms[i]);
+    if (nodes.length < 3) return;
+    final path = Path();
+    path.moveTo(cam.toScreen(nodes.first).dx, cam.toScreen(nodes.first).dy);
+    for (final n in nodes.skip(1)) {
+      final p = cam.toScreen(n);
+      path.lineTo(p.dx, p.dy);
+    }
+    path.close();
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = JiajiaColors.accent.withValues(alpha: 0.12)
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = JiajiaColors.accent
+        ..strokeWidth = 2
+        ..style = PaintingStyle.stroke,
+    );
   }
 
   /// 房间面积标注（原 app「房间面积」同款）：房间中心画 面积㎡。

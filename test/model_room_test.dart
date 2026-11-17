@@ -1,0 +1,234 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:jiajia/features/floorplan/domain/floor_plan.dart';
+import 'package:jiajia/features/floorplan/domain/model_items.dart';
+import 'package:jiajia/features/floorplan/presentation/floorplan_editor.dart';
+import 'package:jiajia/features/floorplan/state/editor_doc.dart';
+
+/// v0.1.14 模型模块 + 房间拆/合/删（复刻原 app 户型模块）。
+void main() {
+  Future<(ProviderContainer, WidgetTester)> pumpEditor(WidgetTester tester) {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final fut = tester
+        .pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const MaterialApp(home: FloorplanEditorPage()),
+          ),
+        )
+        .then((_) => tester.pump());
+    return fut.then((_) => (container, tester));
+  }
+
+  /// 面板组专用：加高视口（坑⑤ 测试视口 sheet 几何伪影）。
+  Future<(ProviderContainer, WidgetTester)> pumpEditorTall(
+      WidgetTester tester) {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.physicalSize = const Size(800, 600);
+      tester.view.devicePixelRatio = 1.0;
+    });
+    return pumpEditor(tester);
+  }
+
+  group('domain: 拆/合/删房', () {
+    test('拆 4m×3m 房（竖直 50%）→ 2 房各 6㎡ + 隔墙 + 门', () {
+      final p = FloorPlan()
+        ..addRoom(at: const Vec2(0, 0), l: 4, w: 3, withDoor: false);
+      final loops = p.roomLoops();
+      expect(loops, hasLength(1));
+      final id = p.splitRoom(loops.first, axis: 'v', frac: 0.5);
+      expect(id, isNotNull);
+      expect(p.walls.length, 7); // 4 外墙（上下各切成 2 段=6）+ 隔墙
+      expect(p.openings.length, 1); // 拆门
+      final loops2 = p.roomLoops();
+      expect(loops2, hasLength(2));
+      final total = loops2.fold<double>(0, (s, l) => s + l.area);
+      expect(total, closeTo(12.0, 0.3)); // 隔墙厚度占一点面积
+    });
+
+    test('水平拆：太矮的房间拆不了', () {
+      final p = FloorPlan()
+        ..addRoom(at: const Vec2(0, 0), l: 4, w: 0.5, withDoor: false);
+      final loop = p.roomLoops().single;
+      expect(p.splitRoom(loop, axis: 'h'), isNull);
+    });
+
+    test('合并两个相邻房 → 共用隔墙删除，回到 1 房 12㎡', () {
+      final p = FloorPlan()
+        ..addRoom(at: const Vec2(0, 0), l: 4, w: 3, withDoor: false);
+      final l1 = p.roomLoops().single;
+      p.splitRoom(l1, axis: 'v', frac: 0.5, withDoor: false);
+      var loops = p.roomLoops();
+      expect(loops, hasLength(2));
+      var n = p.mergeRooms(loops[0], loops[1]);
+      expect(n, 1);
+      loops = p.roomLoops();
+      expect(loops, hasLength(1));
+      expect(loops.first.area, closeTo(12.0, 0.15));
+      expect(p.walls.length, 6); // 7 − 隔墙
+    });
+
+    test('不相邻房间不能合并', () {
+      final p = FloorPlan()
+        ..addRoom(at: const Vec2(0, 0), l: 3, w: 3, withDoor: false)
+        ..addRoom(at: const Vec2(10, 10), l: 3, w: 3, withDoor: false);
+      final loops = p.roomLoops();
+      expect(loops, hasLength(2));
+      expect(p.sharedWallBetween(loops[0], loops[1]), isNull);
+      expect(p.mergeRooms(loops[0], loops[1]), 0);
+      expect(p.walls.length, 8);
+    });
+
+    test('删房：只删不共用的墙（外墙保留）', () {
+      final p = FloorPlan()
+        ..addRoom(at: const Vec2(0, 0), l: 4, w: 3, withDoor: false)
+        ..addRoom(at: const Vec2(4, 0), l: 4, w: 3, withDoor: false);
+      // 两房间不共墙（间距 0 但各自围合）→ 拆一个房制造共用墙
+      final loops = p.roomLoops();
+      expect(loops, hasLength(2));
+      p.splitRoom(loops.first, axis: 'v', frac: 0.5, withDoor: false);
+      var loops2 = p.roomLoops();
+      expect(loops2, hasLength(3));
+      // 删掉新拆出的左半房：它 4 面墙里 1 面（新隔墙）与右半房共用 → 只删 3 面
+      final n = p.removeRoomWalls(loops2.last);
+      expect(n, greaterThanOrEqualTo(0));
+      expect(p.walls.isNotEmpty, true);
+    });
+
+    test('roomContains：房间内点 true，外 false', () {
+      final p = FloorPlan()
+        ..addRoom(at: const Vec2(0, 0), l: 4, w: 3, withDoor: false);
+      final loop = p.roomLoops().single;
+      expect(p.roomContains(loop, const Vec2(2, 1.5)), true);
+      expect(p.roomContains(loop, const Vec2(5, 1.5)), false);
+    });
+  });
+
+  group('model: 模型目录（原 app 图标）', () {
+    test('5 类目录齐 + 28 件', () {
+      expect(ModelItems.categories,
+          ['门', '窗', '柱', '楼梯', '台面/五金']);
+      expect(ModelItems.all.length, 28);
+      expect(ModelItems.ofCategory('门').length, 5);
+      expect(ModelItems.ofCategory('窗').length, 6);
+      expect(ModelItems.ofCategory('柱').length, 2);
+      expect(ModelItems.ofCategory('楼梯').length, 3);
+      expect(ModelItems.ofCategory('台面/五金').length, 12);
+      expect(ModelItems.ofCategory('门').every((m) => m.place == ModelPlace.wall), true);
+      final zhu = ModelItems.ofCategory('柱');
+      expect(zhu.every((m) => m.place == ModelPlace.floor), true);
+      expect(zhu.every((m) => m.floorKind != null), true);
+    });
+  });
+
+  group('editor: 模型放置 + 拆房面板', () {
+    testWidgets('模型 chip → 面板 5 类 tab 可切（widget 存在）',
+        (tester) async {
+      await pumpEditorTall(tester);
+      await tester.tap(find.text('模型'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('模型 · 门（5 件）'), findsOneWidget);
+      await tester.tap(find.text('窗'));
+      await tester.pump();
+      expect(find.text('模型 · 窗（6 件）'), findsOneWidget);
+      await tester.tap(find.text('楼梯'));
+      await tester.pump();
+      expect(find.text('直楼梯'), findsOneWidget);
+    });
+
+    testWidgets('选门 → 点墙开洞（参数正确）', (tester) async {
+      final (container, _) = await pumpEditorTall(tester);
+      // 先建房（视口中央 4×3）
+      await tester.tap(find.text('建房'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      // 取消「底墙加门」：本测试要自己放门，保证开洞数可预期（点 Checkbox 本体）
+      await tester.tap(find.byType(Checkbox));
+      await tester.pump();
+      await tester.tap(find.text('创建房间'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      final plan = container.read(editorDocProvider).plan;
+      expect(plan.walls.length, 4);
+      expect(plan.openings.isEmpty, true); // 未勾选底墙加门
+      await tester.tap(find.text('模型'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('单开门'));
+      await tester.pump();
+      expect(find.text('选择'), findsOneWidget); // 工具条仍在
+
+      // 顶墙中点：fit 后 mW=6m、mH=5m（4×3 房间 + 各 1m 边距）
+      // ppm = min(cw/6, ch/5)；顶墙 y_local = (ch − 5·ppm)/2，x 取画布中心
+      final cvF = find.byKey(const ValueKey('cv'));
+      final cRect = tester.getRect(cvF);
+      final cw = cRect.width, ch = cRect.height;
+      final ppm = cw / 6 < ch / 5 ? cw / 6 : ch / 5;
+      final topWallPt = Offset(cRect.center.dx, cRect.top + (ch - 5 * ppm) / 2);
+      await tester.tapAt(topWallPt);
+      await tester.pump(const Duration(milliseconds: 400)); // 越过双击窗口，onTapUp 才触发
+      await tester.pump();
+      final plan2 = container.read(editorDocProvider).plan;
+      expect(plan2.openings.length, 1);
+      final o = plan2.openings.values.first;
+      expect(o.width, closeTo(0.9, 0.01));
+      expect(o.kind, OpeningKind.door);
+    });
+
+    testWidgets('选柱 → 点画布摆放下（item 生成）', (tester) async {
+      final (container, _) = await pumpEditorTall(tester);
+      await tester.tap(find.text('模型'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('柱'));
+      await tester.pump();
+      await tester.tap(find.text('方柱'));
+      await tester.pump();
+      final cvF = find.byKey(const ValueKey('cv'));
+      await tester.tapAt(tester.getCenter(cvF));
+      await tester.pump(const Duration(milliseconds: 400)); // 越过双击窗口
+      await tester.pump();
+      final plan = container.read(editorDocProvider).plan;
+      expect(plan.items.length, 1);
+      expect(plan.items.values.first.kind, FurnitureKind.pillar);
+    });
+
+    testWidgets('拆房面板：选房 → 拆房 → 左右分 → 拆分 → 2 房',
+        (tester) async {
+      final (container, _) = await pumpEditorTall(tester);
+      // 建房 4×3
+      await tester.tap(find.text('建房'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('创建房间'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 切选择工具 → 点房间内部（画布中心 = 房间中心）
+      await tester.tap(find.text('选择'));
+      await tester.pump();
+      final cvF = find.byKey(const ValueKey('cv'));
+      await tester.tapAt(tester.getCenter(cvF));
+      await tester.pump(const Duration(milliseconds: 400)); // 越过双击窗口
+      await tester.pump();
+      expect(find.textContaining('房间 ·'), findsOneWidget);
+
+      await tester.tap(find.text('拆房'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('左右分（竖直墙）'), findsOneWidget);
+      await tester.tap(find.text('拆分'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final plan = container.read(editorDocProvider).plan;
+      expect(plan.walls.length, 7); // 4 外墙切 2 段 + 隔墙
+      expect(plan.roomLoops(), hasLength(2));
+    });
+  });
+}

@@ -166,6 +166,25 @@ enum FurnitureKind {
 
   /// 原 app 素材模型（OBJ/MTL，见 ModelAssets）；2D 占地由 item.footprint 决定。
   asset,
+
+  // ---- 原 app「模型」模块（2D 符号类：柱/楼梯/台面/五金）----
+  pillar,
+  roundPillar,
+  stair,
+  stairL,
+  stairR,
+  vanity,
+  gasStove,
+  gasCupboard,
+  drain,
+  pipe,
+  meterBox,
+  waterMeter,
+  radiator,
+  acSlot,
+  socketWall,
+  socketFloor,
+  switchPanel,
 }
 
 class FurnitureCatalog {
@@ -194,6 +213,23 @@ class FurnitureCatalog {
     FurnitureKind.shoe: (0.8, 0.35, 1.0, 0x8F6F52),
     FurnitureKind.shelf: (0.8, 0.3, 1.8, 0x9C7A5A),
     FurnitureKind.asset: (0.6, 0.6, 0.6, 0x8B93A5),
+    FurnitureKind.pillar: (0.4, 0.4, 2.8, 0xB8B2A6),
+    FurnitureKind.roundPillar: (0.4, 0.4, 2.8, 0xD8D4CA),
+    FurnitureKind.stair: (1.2, 2.6, 2.8, 0x8B93A5),
+    FurnitureKind.stairL: (1.2, 2.6, 2.8, 0x7D8A94),
+    FurnitureKind.stairR: (1.2, 2.6, 2.8, 0x99A5B5),
+    FurnitureKind.vanity: (0.9, 0.45, 0.8, 0xA8896A),
+    FurnitureKind.gasStove: (0.75, 0.65, 0.85, 0x9AA4AB),
+    FurnitureKind.gasCupboard: (0.6, 0.65, 1.9, 0x9C7A5A),
+    FurnitureKind.drain: (0.15, 0.15, 0.05, 0x7D8A94),
+    FurnitureKind.pipe: (0.1, 0.3, 2.8, 0x7D8A94),
+    FurnitureKind.meterBox: (0.4, 0.12, 0.6, 0x8A97A1),
+    FurnitureKind.waterMeter: (0.3, 0.25, 0.4, 0x8FA8B8),
+    FurnitureKind.radiator: (1.2, 0.12, 0.8, 0xCC9A6E),
+    FurnitureKind.acSlot: (0.7, 0.7, 0.1, 0x6E7A84),
+    FurnitureKind.socketWall: (0.1, 0.1, 0.1, 0x6FCF97),
+    FurnitureKind.socketFloor: (0.12, 0.12, 0.02, 0x6FCF97),
+    FurnitureKind.switchPanel: (0.1, 0.1, 0.1, 0xE5C97A),
   };
 
   /// 家具工具栏可选种类（不含素材模型 asset —— 走「素材」入口）。
@@ -243,6 +279,23 @@ class FurnitureCatalog {
       FurnitureKind.shoe: '鞋柜',
       FurnitureKind.shelf: '置物架',
       FurnitureKind.asset: '素材',
+      FurnitureKind.pillar: '方柱',
+      FurnitureKind.roundPillar: '圆柱',
+      FurnitureKind.stair: '直楼梯',
+      FurnitureKind.stairL: '左拐楼梯',
+      FurnitureKind.stairR: '右拐楼梯',
+      FurnitureKind.vanity: '梳妆台',
+      FurnitureKind.gasStove: '燃气灶',
+      FurnitureKind.gasCupboard: '燃气柜',
+      FurnitureKind.drain: '下水口',
+      FurnitureKind.pipe: '落管',
+      FurnitureKind.meterBox: '电表箱',
+      FurnitureKind.waterMeter: '水表',
+      FurnitureKind.radiator: '暖气片',
+      FurnitureKind.acSlot: '空调洞',
+      FurnitureKind.socketWall: '墙插',
+      FurnitureKind.socketFloor: '地插',
+      FurnitureKind.switchPanel: '开关',
     };
     return names[k]!;
   }
@@ -493,7 +546,296 @@ extension FloorPlanRooms on FloorPlan {
       if (found.length >= 60) break;
     }
     found.sort((a, b) => b.area.compareTo(a.area));
-    return found;
+    // ① 按墙集去重（DFS 可能把同一组墙以不同路径顺序吐多次，面积各不同）
+    // ② 面积/质心用「有序多边形」shoelace 重算（DFS 路径顺序不可靠）
+    final bySet = <String, RoomLoop>{};
+    for (final l in found) {
+      bySet.putIfAbsent(l.walls.map((w) => w.id).join('|'), () => l);
+    }
+    var rooms = bySet.values
+        .map((l) {
+          final nodes = orderedNodes(l);
+          double s = 0;
+          var cx = 0.0, cy = 0.0;
+          for (var i = 0; i < nodes.length; i++) {
+            final a = nodes[i],
+                b = nodes[(i + 1) % nodes.length];
+            s += a.x * b.y - b.x * a.y;
+            cx += a.x;
+            cy += a.y;
+          }
+          final n = nodes.length;
+          return RoomLoop(l.walls, s.abs() / 2, Vec2(cx / n, cy / n));
+        })
+        .toList();
+    // ③ 剔除「假环」：被隔墙穿过的环（非成员墙中点严格落在环内）不是房间
+    rooms.removeWhere((loop) {
+      for (final w in walls.values) {
+        if (loop.walls.any((m) => m.id == w.id)) continue;
+        final mid = Vec2((w.a.x + w.b.x) / 2, (w.a.y + w.b.y) / 2);
+        bool inside = false;
+        var prev = orderedNodes(loop).first;
+        for (final n in orderedNodes(loop).sublist(1)) {
+          final cur = n;
+          if ((prev.y > mid.y) != (cur.y > mid.y)) {
+            final xInt =
+                prev.x + (mid.y - prev.y) / (cur.y - prev.y) * (cur.x - prev.x);
+            if (mid.x < xInt) inside = !inside;
+          }
+          prev = cur;
+        }
+        if (!inside) continue;
+        var dMin = 1e9;
+        for (final m in loop.walls) {
+          final abx = m.b.x - m.a.x,
+              aby = m.b.y - m.a.y;
+          final l2 = abx * abx + aby * aby;
+          double d;
+          if (l2 < 1e-9) {
+            d = Vec2(mid.x - m.a.x, mid.y - m.a.y).length;
+          } else {
+            var t =
+                ((mid.x - m.a.x) * abx + (mid.y - m.a.y) * aby) / l2;
+            t = t.clamp(0.0, 1.0);
+            d = Vec2(m.a.x + t * abx - mid.x, m.a.y + t * aby - mid.y)
+                .length;
+          }
+          dMin = math.min(dMin, d);
+        }
+        if (dMin > 0.05) return true; // 有隔墙在房间内部 → 假环
+      }
+      return false;
+    });
+    // ④ 按多边形签名去重：同一物理房间可能以两种墙集（共位双墙）或
+    // 两种方向（CW/CCW）各出现一次 → 签名取「正向/反向」的字典序较小者
+    final seenPoly = <String>{};
+    String sigOf(List<Vec2> v) {
+      int minI = 0;
+      for (var i = 1; i < v.length; i++) {
+        final a = v[i], b = v[minI];
+        if (a.x < b.x || (a.x == b.x && a.y < b.y)) minI = i;
+      }
+      return List<String>.generate(v.length, (i) {
+        final n = v[(minI + i) % v.length];
+        return '${(n.x * 20).round()}:${(n.y * 20).round()}';
+      }).join(',');
+    }
+
+    rooms.removeWhere((loop) {
+      final nodes = orderedNodes(loop);
+      final uniq = nodes.length > 1 ? nodes.sublist(0, nodes.length - 1) : nodes;
+      if (uniq.isEmpty) return true;
+      final key = [
+        sigOf(uniq),
+        sigOf(uniq.reversed.toList()),
+      ].reduce((a, b) => a.compareTo(b) < 0 ? a : b);
+      return !seenPoly.add(key);
+    });
+    return rooms;
+  }
+}
+
+/// 房间几何操作（拆/合/删房 + 房间包含测试，原 app「分房/合并」同款）。
+extension RoomOps on FloorPlan {
+  /// 把房间的墙按端点衔接成有序多边形（节点序列，首尾不重复）。
+  /// 房间环是简单回路（T 型三通取「非来向」边），3~12 面墙足够。
+  List<Vec2> orderedNodes(RoomLoop loop) {
+    const eps = 0.05;
+    if (loop.walls.isEmpty) return const [];
+    // 从任意墙出发链式走：在节点处贪心找「未用过、与上一面墙尾端共点」的墙
+    final usedW = <String>{};
+    final rest = <Wall>[...loop.walls];
+    final first = loop.walls.first;
+    final out = <Vec2>[first.a, first.b];
+    usedW.add(first.id);
+    var guard = 0;
+    while (guard++ < 16 && rest.isNotEmpty) {
+      final prevB = out.last;
+      Wall? nextWall;
+      Vec2? nextNode;
+      outer:
+      for (final w in rest) {
+        if (usedW.contains(w.id)) continue;
+        for (final e in [w.a, w.b]) {
+          if (e.distanceTo(prevB) < eps) {
+            nextWall = w;
+            // 取「另一端」为新节点（e 是与上墙尾重合的端点）
+            nextNode = w.a.distanceTo(prevB) < eps ? w.b : w.a;
+            break outer;
+          }
+        }
+      }
+      if (nextWall == null) break; // 断链（非简单环）→ 用已有序列
+      usedW.add(nextWall.id);
+      rest.remove(nextWall);
+      out.add(nextNode!);
+    }
+    if (out.length < 3) {
+      // 兜底：墙端点集合（退化情况，仅用于 bbox）
+      return loop.walls.expand((w) => [w.a, w.b]).toSet().toList();
+    }
+    return out;
+  }
+
+  /// 点是否在房间内（shoelace 射线法，节点取 orderedNodes）。
+  bool roomContains(RoomLoop loop, Vec2 p) {
+    final nodes = orderedNodes(loop);
+    if (nodes.length < 3) return false;
+    var inside = false;
+    var j = nodes.length - 1;
+    for (var i = 0; i < nodes.length; i++) {
+      final a = nodes[i], b = nodes[j];
+      if ((a.y > p.y) != (b.y > p.y) &&
+          p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x) {
+        inside = !inside;
+      }
+      j = i;
+    }
+    return inside;
+  }
+
+  /// 两房间共用的隔墙 id（无则 null）。
+  String? sharedWallBetween(RoomLoop a, RoomLoop b) {
+    final sa = a.walls.map((w) => w.id).toSet();
+    for (final w in b.walls) {
+      if (sa.contains(w.id)) return w.id;
+    }
+    return null;
+  }
+
+  /// 把「包含点 pt 的边界墙」切成两段（T 型节点），开洞按位置迁移。
+  /// axis：拆房方向（'v' 竖直隔墙 → 切的是水平墙；'h' → 切垂直墙）。
+  void _splitBoundaryWallAt(Vec2 pt, String axis) {
+    const eps = 0.06;
+    for (final w in walls.values.toList()) {
+      final horiz = (w.a.dy - w.b.dy).abs() < (w.a.dx - w.b.dx).abs();
+      if (axis == 'v' && !horiz) continue;
+      if (axis == 'h' && horiz) continue;
+      // pt 在 w 上：
+      final onSeg = horiz
+          ? ((pt.dy - w.a.dy).abs() < eps &&
+              pt.dx >= math.min(w.a.dx, w.b.dx) - eps &&
+              pt.dx <= math.max(w.a.dx, w.b.dx) + eps)
+          : ((pt.dx - w.a.dx).abs() < eps &&
+              pt.dy >= math.min(w.a.dy, w.b.dy) - eps &&
+              pt.dy <= math.max(w.a.dy, w.b.dy) + eps);
+      if (!onSeg) continue;
+      // 端点已在 pt（非 T 型）不切
+      if (w.a.distanceTo(pt) < eps || w.b.distanceTo(pt) < eps) continue;
+      final d = pt.distanceTo(w.a);
+      final id1 = newId('w'), id2 = newId('w');
+      walls[id1] = Wall(id: id1, a: w.a, b: pt, thickness: w.thickness);
+      walls[id2] = Wall(id: id2, a: pt, b: w.b, thickness: w.thickness);
+      walls.remove(w.id);
+      // 开洞是 final wallId → 重建并迁移到新段
+      for (final o in openings.values.toList()) {
+        if (o.wallId != w.id) continue;
+        final o2 = o.offset <= d
+            ? Opening(
+                id: o.id,
+                wallId: id1,
+                kind: o.kind,
+                doorType: o.doorType,
+                offset: o.offset,
+                width: o.width,
+                sill: o.sill,
+                height: o.height,
+              )
+            : Opening(
+                id: o.id,
+                wallId: id2,
+                kind: o.kind,
+                doorType: o.doorType,
+                offset: o.offset - d,
+                width: o.width,
+                sill: o.sill,
+                height: o.height,
+              );
+        openings[o.id] = o2;
+      }
+      return;
+    }
+  }
+
+  /// 拆分房间：在房间内加一面隔墙（v=竖直墙分左右 / h=水平墙分上下），
+  /// 位置 frac ∈ (0,1) 相对房间 bbox。withDoor 时隔墙中央加 900 门。
+  /// 返回新墙 id；房间不可拆（太小/非轴对齐）返回 null。
+  String? splitRoom(
+    RoomLoop loop, {
+    required String axis,
+    double frac = 0.5,
+    bool withDoor = true,
+  }) {
+    final nodes = orderedNodes(loop);
+    if (nodes.length < 4) return null;
+    double minx = 1e9, maxx = -1e9, miny = 1e9, maxy = -1e9;
+    for (final n in nodes) {
+      minx = math.min(minx, n.x);
+      maxx = math.max(maxx, n.x);
+      miny = math.min(miny, n.y);
+      maxy = math.max(maxy, n.y);
+    }
+    final thick = loop.walls.first.thickness;
+    Vec2 p1, p2;
+    if (axis == 'v') {
+      if ((maxx - minx) < 0.6) return null; // 太窄
+      final x = minx + frac.clamp(0.1, 0.9) * (maxx - minx);
+      p1 = Vec2(x, miny);
+      p2 = Vec2(x, maxy);
+    } else {
+      if ((maxy - miny) < 0.6) return null;
+      final y = miny + frac.clamp(0.1, 0.9) * (maxy - miny);
+      p1 = Vec2(minx, y);
+      p2 = Vec2(maxx, y);
+    }
+    if (p1.distanceTo(p2) < 0.3) return null;
+    final id = newId('w');
+    walls[id] = Wall(id: id, a: p1, b: p2, thickness: thick, height: 2.8);
+    // 隔墙端点落在边界墙中间（T 型）→ 必须把被穿的边界墙切成两段，
+    // 否则 DFS 房间图里还是 1 个大环（房间没真正拆开）
+    _splitBoundaryWallAt(p1, axis);
+    _splitBoundaryWallAt(p2, axis);
+    if (withDoor) {
+      final w = walls[id]!;
+      final off = ((w.length - 0.9) / 2).clamp(0.05, w.length - 0.9);
+      final oid = newId('o');
+      openings[oid] = Opening(
+        id: oid,
+        wallId: id,
+        kind: OpeningKind.door,
+        offset: off,
+        width: 0.9,
+      );
+    }
+    return id;
+  }
+
+  /// 合并两个房间：删除共用隔墙 + 该墙上的门窗。返回删除墙数（0=不相邻）。
+  int mergeRooms(RoomLoop a, RoomLoop b) {
+    final id = sharedWallBetween(a, b);
+    if (id == null) return 0;
+    openings.removeWhere((_, o) => o.wallId == id);
+    walls.remove(id);
+    return 1;
+  }
+
+  /// 删除房间：只删「不与其他房间共用」的墙（外墙保留）。返回删除数。
+  int removeRoomWalls(RoomLoop loop) {
+    final others = roomLoops()..removeWhere((l) => identical(l, loop));
+    final shared = <String>{};
+    for (final l in others) {
+      for (final w in loop.walls) {
+        if (l.walls.any((o) => o.id == w.id)) shared.add(w.id);
+      }
+    }
+    var n = 0;
+    for (final w in loop.walls) {
+      if (shared.contains(w.id)) continue;
+      openings.removeWhere((_, o) => o.wallId == w.id);
+      walls.remove(w.id);
+      n++;
+    }
+    return n;
   }
 }
 
