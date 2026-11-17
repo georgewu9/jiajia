@@ -1326,13 +1326,32 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   }
 
   void _handleDoubleTap(Offset local, FloorPlan plan, Size canvas) {
-    final hit = _hitWall(plan, _cam.toWorld(local));
-    if (hit != null) {
-      _openWallDialog(hit.id);
+    final world = _cam.toWorld(local);
+    // 双击开洞（门/窗）→ 改参数对话框（宽度/边距/离地高度/洞高/门型）
+    final oHit = _hitTest(plan, world);
+    if (oHit != null && oHit.type == 'opening') {
+      _openOpeningDialog(oHit.id);
+      return;
+    }
+    final wh = _hitWall(plan, world);
+    if (wh != null) {
+      _openWallDialog(wh.id);
     } else {
       _cam.fit(canvas, plan);
       setState(() {});
     }
+  }
+
+  void _openOpeningDialog(String openingId) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: JiajiaColors.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+      ),
+      builder: (_) => _OpeningDialog(openingId: openingId),
+    );
   }
 
   void _eraseWall(String wallId) {
@@ -2065,6 +2084,270 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
       style: const TextStyle(fontSize: 13, color: JiajiaColors.accent),
     ),
   );
+}
+
+// ---------------- 双击门窗：改参数（宽度/边距/离地高度/洞高/门型） ----------------
+
+class _OpeningDialog extends ConsumerStatefulWidget {
+  final String openingId;
+  const _OpeningDialog({required this.openingId});
+
+  @override
+  ConsumerState<_OpeningDialog> createState() => _OpeningDialogState();
+}
+
+class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
+  late final TextEditingController _wC;
+  late final TextEditingController _offC;
+  late final TextEditingController _sillC;
+  late final TextEditingController _hC;
+  late OpeningKind _kind;
+  late DoorType _dt;
+
+  @override
+  void initState() {
+    super.initState();
+    final o = ref.read(editorDocProvider).plan.openings[widget.openingId];
+    if (o == null) {
+      _kind = OpeningKind.door;
+      _dt = DoorType.single;
+      _wC = TextEditingController(text: '900');
+      _offC = TextEditingController(text: '450');
+      _sillC = TextEditingController(text: '900');
+      _hC = TextEditingController(text: '2000');
+      return;
+    }
+    _kind = o.kind;
+    _dt = o.doorType;
+    _wC = TextEditingController(text: '${toMm(o.width)}');
+    _offC = TextEditingController(text: '${toMm(o.offset)}');
+    _sillC = TextEditingController(text: '${toMm(o.sill)}');
+    _hC = TextEditingController(text: '${toMm(o.height)}');
+  }
+
+  @override
+  void dispose() {
+    for (final c in [_wC, _offC, _sillC, _hC]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  void _pickType(OpeningKind k, DoorType dt) {
+    setState(() {
+      _kind = k;
+      _dt = dt;
+      if (k == OpeningKind.window) {
+        if (int.tryParse(_wC.text) == null) _wC.text = '1500';
+        if (int.tryParse(_hC.text) == null) _hC.text = '1500';
+        if (int.tryParse(_sillC.text) == null) _sillC.text = '900';
+      } else {
+        _wC.text = '${dt.defaultWidthMm}';
+        _hC.text = '${dt.defaultHeightMm}';
+      }
+    });
+  }
+
+  int? _parseMm(TextEditingController f, {int min = 0}) {
+    final v = int.tryParse(f.text.trim());
+    if (v == null || v < min) return null;
+    return v;
+  }
+
+  void _msg(String m) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger != null) {
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(SnackBar(content: Text(m)));
+    }
+  }
+
+  void _apply() {
+    final plan = ref.read(editorDocProvider).plan;
+    final o = plan.openings[widget.openingId];
+    if (o == null) {
+      _msg('该开洞已不存在');
+      return;
+    }
+    final wall = plan.walls[o.wallId];
+    if (wall == null) {
+      _msg('所属墙已不存在，无法修改');
+      return;
+    }
+    final wMm = _parseMm(_wC, min: 1), offMm = _parseMm(_offC);
+    final hMm = _parseMm(_hC, min: 1);
+    final sillMm = _kind == OpeningKind.window ? _parseMm(_sillC) : 0;
+    if (wMm == null || offMm == null || hMm == null || sillMm == null) {
+      _msg('参数需为 ≥0 的整数（单位 mm），宽度/洞高 ≥1');
+      return;
+    }
+    ref.read(editorDocProvider.notifier).mutate((p) {
+      final lenM = wall.length;
+      var wM = fromMm(wMm), offM = fromMm(offMm);
+      if (wM > lenM * 0.9) wM = lenM * 0.9;
+      if (offM > lenM - wM) offM = lenM - wM;
+      p.openings[o.id] = Opening(
+        id: o.id,
+        wallId: o.wallId,
+        kind: _kind,
+        doorType: _dt,
+        offset: offM,
+        width: wM,
+        sill: _kind == OpeningKind.window ? fromMm(sillMm) : 0.0,
+        height: fromMm(hMm),
+      );
+    });
+    _msg('开洞参数已更新');
+    if (context.mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final plan = ref.read(editorDocProvider).plan;
+    final o = plan.openings[widget.openingId];
+    if (o == null) {
+      return const Padding(padding: EdgeInsets.all(24), child: Text('开洞已不存在'));
+    }
+    Widget mmField(String label, TextEditingController c, {bool enabled = true}) =>
+        Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: TextFormField(
+        controller: c,
+        enabled: enabled,
+        keyboardType: TextInputType.number,
+        style: const TextStyle(color: JiajiaColors.text1, fontSize: 14),
+        decoration: InputDecoration(
+          labelText: enabled ? '$label (mm)' : '$label（门=0）',
+          labelStyle: const TextStyle(color: JiajiaColors.text3),
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 10,
+          ),
+          border: const OutlineInputBorder(),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(8)),
+            borderSide: BorderSide(color: JiajiaColors.line),
+          ),
+          disabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(8)),
+            borderSide: BorderSide(color: JiajiaColors.line),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(8)),
+            borderSide: const BorderSide(color: JiajiaColors.accent),
+          ),
+        ),
+        onChanged: (_) => setState(() {}),
+      ),
+    );
+
+    Widget typeChip(String label, bool selected, VoidCallback onTap) => Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(
+        label: Text(label, style: const TextStyle(fontSize: 12)),
+        selected: selected,
+        onSelected: (_) => onTap(),
+      ),
+    );
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.5,
+      maxChildSize: 0.9,
+      minChildSize: 0.35,
+      builder: (BuildContext c, ScrollController sc) => ListView(
+        controller: sc,
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text(
+            '开洞 ${o.id} · ${o.kind == OpeningKind.window ? '窗' : '门'} · 宽 ${toMm(o.width)}mm',
+            style: const TextStyle(
+              color: JiajiaColors.accent,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              typeChip(
+                '窗',
+                _kind == OpeningKind.window,
+                () => _pickType(OpeningKind.window, _dt),
+              ),
+              typeChip(
+                '门',
+                _kind == OpeningKind.door,
+                () => _pickType(OpeningKind.door, _dt),
+              ),
+            ],
+          ),
+          if (_kind == OpeningKind.door) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final t in [
+                  DoorType.doorway,
+                  DoorType.single,
+                  DoorType.double,
+                  DoorType.sliding,
+                ])
+                  typeChip(
+                    t.label,
+                    _dt == t,
+                    () => _pickType(OpeningKind.door, t),
+                  ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(child: mmField('宽度', _wC)),
+              Expanded(child: mmField('边距(墙端)', _offC)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: mmField('离地高度', _sillC, enabled: _kind == OpeningKind.window)),
+              Expanded(child: mmField('洞高', _hC)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: JiajiaColors.accentSoft,
+                foregroundColor: JiajiaColors.accent,
+              ),
+              onPressed: _apply,
+              child: const Text(
+                '应用',
+                style: TextStyle(fontSize: 13, color: JiajiaColors.accent),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: () {
+                ref.read(editorDocProvider.notifier).mutate((p) {
+                  p.openings.remove(o.id);
+                });
+                if (context.mounted) Navigator.pop(context);
+              },
+              child: const Text('删除该开洞', style: TextStyle(fontSize: 13)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ---------------- 绘制 ----------------

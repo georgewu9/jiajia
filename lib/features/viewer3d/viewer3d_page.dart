@@ -36,10 +36,31 @@ class _Viewer3dPageState extends ConsumerState<Viewer3dPage> {
     try {
       bootLog.line('webview-creating');
       c = WebViewController()
-        ..addJavaScriptChannel('dart', onMessageReceived: _onJsMessage);
+        ..addJavaScriptChannel('dart', onMessageReceived: _onJsMessage)
+        ..setNavigationDelegate(
+          NavigationDelegate(
+            onPageStarted: (url) {
+              bootLog.line('webview-nav: $url');
+            },
+            onPageFinished: (url) {
+              bootLog.line('webview-loaded: $url');
+            },
+            onWebResourceError: (err) {
+              bootLog.error('webview-resource-error: ${err.description}'
+                  ' url=${err.url}');
+              if (mounted) {
+                setState(() => _status =
+                    '资源加载失败：${err.description}${err.errorType == WebResourceErrorType.fileNotFound ? '（资源缺失）' : ''}');
+              }
+            },
+          ),
+        );
       (c.platform as AndroidWebViewController)
           .setJavaScriptMode(JavaScriptMode.unrestricted);
-      c.loadFlutterAsset('web/viewer.html');
+      // 资产在 APK 内是 flutter_assets/assets/web/…（pubspec 声明的是
+      // assets/web/ 目录），loadFlutterAsset 需要带完整逻辑路径，
+      // 写成 'web/viewer.html' 会 404 → 白板。
+      c.loadFlutterAsset('assets/web/viewer.html');
     } catch (e) {
       bootLog.error('webview-failed: $e');
       return null; // 平台不可用（widget 测试环境）

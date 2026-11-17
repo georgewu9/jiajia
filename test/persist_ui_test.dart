@@ -154,5 +154,50 @@ void main() {
       expect(find.text('我的客厅'), findsOneWidget);
       await tester.pumpAndSettle();
     });
+
+    testWidgets('双击开洞 → 对话框改参数（宽度）', (tester) async {
+      final (container, _) = await pumpEditorTall(tester);
+      await createRoom(tester);
+      // 选顶墙 → 加开洞（门，默认宽 900mm @ 450mm）
+      await tester.tap(find.text('选择'));
+      await tester.pump();
+      await tester.tapAt(topWallCenter(tester));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('加开洞'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('加门'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      var opens = container.read(editorDocProvider).plan.openings.values.toList();
+      expect(opens, hasLength(1));
+      expect(opens.first.width, closeTo(0.9, 1e-3));
+      // 开洞中心：offset 450 + 宽 450 = 距墙起点 0.9m。fit 公式 mW=6（含两侧
+      // 1m 边距）→ 起点在 center−3ppm，中心 = center − (3−0.9)ppm = center−2.1ppm
+      final cRect = tester.getRect(find.byKey(const ValueKey('cv')));
+      final cw = cRect.width, ch = cRect.height;
+      final ppm = cw / 6 < ch / 5 ? cw / 6 : ch / 5;
+      final openPt = Offset(
+          cRect.center.dx - 2.1 * ppm, cRect.top + (ch - 5 * ppm) / 2);
+      await tester.tapAt(openPt);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tapAt(openPt);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(milliseconds: 300));
+      // _OpeningDialog：标题 + 参数字段
+      expect(find.textContaining('宽 900mm'), findsOneWidget);
+      final widthField = find.byWidgetPredicate(
+          (w) => w is TextField &&
+              (w.decoration as InputDecoration).labelText == '宽度 (mm)');
+      expect(widthField, findsOneWidget);
+      await tester.enterText(widthField, '1200');
+      await tester.tap(find.text('应用'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      opens = container.read(editorDocProvider).plan.openings.values.toList();
+      expect(opens.single.width, closeTo(1.2, 1e-3),
+          reason: '宽度应更新为 1200mm');
+      expect(opens.single.offset, closeTo(0.45, 1e-3), reason: '边距不变');
+    });
   });
 }
