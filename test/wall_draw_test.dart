@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:jiajia/features/floorplan/domain/floor_plan.dart';
 import 'package:jiajia/features/floorplan/presentation/floorplan_editor.dart';
 import 'package:jiajia/features/floorplan/state/editor_doc.dart';
 
@@ -33,23 +34,33 @@ void main() {
     expect(plan.walls.length, 1);
   });
 
-  testWidgets('家具工具：单指轻点放家具', (tester) async {
+  testWidgets('模块 → 梁柱 → 方柱：点画布摆放（v0.1.17 二级菜单）',
+      (tester) async {
     final (container, _) = await pumpEditor(tester);
-    await tester.tap(find.text('家具'));
+    // 一级：模块
+    await tester.tap(find.text('模块'));
     await tester.pump();
-    final chipVisible = find.byType(ChoiceChip).evaluate().isNotEmpty;
-    // ignore: avoid_print
-    print('TOOL-SWITCH: choiceChipRow=$chipVisible');
+    await tester.pump(const Duration(milliseconds: 300)); // DSS 动画
+    expect(find.text('门'), findsOneWidget);
+    expect(find.text('拆改'), findsOneWidget);
+    // 二级：梁柱（柱 + 台面/五金）
+    await tester.tap(find.text('梁柱'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('方柱'), findsOneWidget);
+    await tester.tap(find.text('方柱'));
+    await tester.pump();
     // 轻点画布中心（单 tap 需等 ~300ms 双击窗口后才触发 onTapUp）
     final c = tester.getCenter(find.byKey(const ValueKey('cv')));
     await tester.tapAt(c);
     await tester.pump(const Duration(milliseconds: 400)); // 越过双击窗口
+    await tester.pump();
 
     final plan = container.read(editorDocProvider).plan;
     // ignore: avoid_print
     print('FURN: items=${plan.items.length}');
-    expect(chipVisible, true, reason: '选家具工具后应出现类型选择行');
-    expect(plan.items.isNotEmpty, true, reason: '单指 tap 应放入一件家具');
+    expect(plan.items.isNotEmpty, true, reason: '点画布应放入一件方柱');
+    expect(plan.items.values.first.kind, FurnitureKind.pillar);
   });
 
   testWidgets('双击墙 → 弹出台底尺寸面板', (tester) async {

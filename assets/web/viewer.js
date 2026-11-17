@@ -48,6 +48,8 @@
     socketWall: [0.1, 0.1, 0.1, 0x6fcf97],
     socketFloor: [0.12, 0.12, 0.02, 0x6fcf97],
     switchPanel: [0.1, 0.1, 0.1, 0xe5c97a],
+    landing: [1.2, 1.2, 0.15, 0x9aa4b8],
+    arcWall: [2.0, 0.24, 2.8, 0x9c8b7a],
   };
 
   var scene = new THREE.Scene();

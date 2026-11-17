@@ -33,8 +33,11 @@ class CameraCtrl {
   Vec2 toWorld(Offset p) => Vec2((p.dx - pan.dx) / ppm, (p.dy - pan.dy) / ppm);
 
   /// 双指缩放：围绕两点中点放大 [d]。
+  /// 缩放按 40% 响应（damping）：双指手势每帧上报累计 scale，全量响应
+  /// 会「一动就放大过头」；阻尼后手感更细腻，上限/下限照旧。
   void zoom(Offset center, double d) {
-    final f = (ppm * d).clamp(20.0, 400.0) / ppm;
+    final damped = 1.0 + (d - 1.0) * 0.4;
+    final f = (ppm * damped).clamp(20.0, 400.0) / ppm;
     final w = toWorld(center);
     ppm *= f;
     pan = center - Offset(w.dx * ppm, w.dy * ppm);
@@ -80,7 +83,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   Size _canvasSize = const Size(360, 480);
   final GlobalKey _paintKey = GlobalKey();
   Offset? _downLocal; // 最近一次手指按下位置（画墙起点用它，避开 scale slop 偏移）
-  bool _showAreas = false; // 面积标注开关
+  static const bool _showAreas = true; // 面积标注（v0.1.17 起无开关入口，默认常显）
   String _roomsSig = '';
   List<RoomLoop> _rooms = const [];
   ModelSpec? _pendingModel; // 「模型」面板选中的待放置项（门/窗贴墙，柱/楼梯/台面摆地）
@@ -304,6 +307,28 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                     onClear: () => setState(() => _sel = null),
                   ),
                 ),
+              // 选中家具/模型件：删除/取消（v0.1.17 底栏删除工具并入后，
+              // 件的删除走这里）
+              if (_sel?.type == 'item')
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 64,
+                  child: _ItemActionBar(
+                    itemId: _sel!.id,
+                    plan: plan,
+                    onRemove: () {
+                      ref
+                          .read(editorDocProvider.notifier)
+                          .mutate((p) {
+                        p.items.remove(_sel!.id);
+                        _sel = null;
+                      });
+                      _toast('已删除该件');
+                    },
+                    onClear: () => setState(() => _sel = null),
+                  ),
+                ),
             ],
           );
         },
@@ -316,21 +341,12 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
             children: [
               SizedBox(
                 height: 46,
-                child: ListView(
+                child:                ListView(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   children: [
-                    _toolChip(
-                      '画墙',
-                      EditorTool.wall,
-                      Icons.draw,
-                      () => _setTool(EditorTool.wall),
-                    ),
-                    _toolChip('建房', EditorTool.wall, Icons.room, () {
-                      _setTool(EditorTool.wall);
-                      _openRoomDialog();
-                    }),
-                    _areaChip,
+                    // v0.1.17：底栏只留 4 个主入口，选择常驻最左（防误操作），
+                    // 开洞/家具/素材/模型/删除 并入「模块」二级菜单。
                     _toolChip(
                       '选择',
                       EditorTool.select,
@@ -338,34 +354,20 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                       () => _setTool(EditorTool.select),
                     ),
                     _toolChip(
-                      '开洞',
-                      EditorTool.opening,
-                      Icons.crop_square,
-                      () => _setTool(EditorTool.opening),
+                      '画墙',
+                      EditorTool.wall,
+                      Icons.draw,
+                      () => _setTool(EditorTool.wall),
                     ),
+                    _toolChip('建房', EditorTool.wall, Icons.room, () {
+                      _setTool(EditorTool.select);
+                      _openRoomDialog();
+                    }),
                     _toolChip(
-                      '家具',
-                      EditorTool.furniture,
-                      Icons.inventory_2,
-                      () => _setTool(EditorTool.furniture),
-                    ),
-                    _toolChip(
-                      '素材',
+                      '模块',
                       EditorTool.furniture,
                       Icons.category,
-                      _openModelSheet,
-                    ),
-                    _toolChip(
-                      '模型',
-                      EditorTool.furniture,
-                      Icons.architecture,
-                      _openModelItemsSheet,
-                    ),
-                    _toolChip(
-                      '删除',
-                      EditorTool.erase,
-                      Icons.delete_outline,
-                      () => _setTool(EditorTool.erase),
+                      _openModuleSheet,
                     ),
                     const SizedBox(width: 8),
                     GestureDetector(
@@ -399,7 +401,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                               color: JiajiaColors.accent,
                             ),
                             label: Text(
-                              '放：${_pendingModel!.label} → 点${_pendingModel!.place == ModelPlace.wall ? '墙' : '画布'}（点「选择」结束）',
+                              '放：${_pendingModel!.label} → 点${_pendingModel!.place == ModelPlace.wall ? '墙' : '画布'}（放下后自动回选择）',
                               style: const TextStyle(fontSize: 12),
                             ),
                             backgroundColor: JiajiaColors.accentSoft,
@@ -469,29 +471,6 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
 
   // ---------------- 一键建房间 / 面积标注 ----------------
 
-  Widget get _areaChip => Padding(
-    padding: const EdgeInsets.only(right: 6),
-    child: ActionChip(
-      avatar: Icon(
-        Icons.square_foot,
-        size: 14,
-        color: _showAreas ? JiajiaColors.accent : JiajiaColors.text2,
-      ),
-      label: const Text('面积', style: TextStyle(fontSize: 13)),
-      backgroundColor: _showAreas
-          ? JiajiaColors.accentSoft
-          : JiajiaColors.raised,
-      side: BorderSide(
-        color: _showAreas ? JiajiaColors.accent : JiajiaColors.line,
-      ),
-      labelStyle: TextStyle(
-        color: _showAreas ? JiajiaColors.accent : JiajiaColors.text1,
-        fontSize: 13,
-      ),
-      onPressed: () => setState(() => _showAreas = !_showAreas),
-    ),
-  );
-
   /// 房间环缓存：户型没变（墙数量+总长一致）时不重算 DFS。
   List<RoomLoop> _roomsOf(FloorPlan p) {
     double sig = 0;
@@ -516,299 +495,308 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     );
   }
 
-  // ---------------- 素材模型（原 app 内置 26 件，按分类选择） ----------------
 
-  void _openModelSheet() {
+  // ---------------- 模块（v0.1.17 二级菜单：门/窗/梁柱/楼梯/拆改/特殊墙窗） ----------------
+
+  /// 模块一级菜单：6 个入口 → 二级素材网格 / 拆改面板。
+  void _openModuleSheet() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: JiajiaColors.surface,
-      builder: (ctx) {
-        int catIdx = 0;
-        return StatefulBuilder(
-          builder: (ctx2, setIt) {
-            final cat = ModelAssets.categories[catIdx];
-            final models = ModelAssets.ofCategory(cat);
-            return DraggableScrollableSheet(
-              expand: false,
-              initialChildSize: 0.6,
-              minChildSize: 0.3,
-              maxChildSize: 0.9,
-              builder: (BuildContext c, ScrollController sc) => Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '素材模型 · ${models.length} 件',
-                            style: const TextStyle(
-                              color: JiajiaColors.text1,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        Text(
-                          '原 app 内置',
-                          style: TextStyle(
-                            color: JiajiaColors.text2,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(
-                    height: 36,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      controller: sc,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      children: [
-                        for (var i = 0; i < ModelAssets.categories.length; i++)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 6),
-                            child: ChoiceChip(
-                              label: Text(
-                                ModelAssets.categories[i],
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              selected: i == catIdx,
-                              onSelected: (_) => setIt(() => catIdx = i),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: GridView.builder(
-                      padding: const EdgeInsets.all(12),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
-                            mainAxisSpacing: 8,
-                          ),
-                      itemCount: models.length,
-                      itemBuilder: (_, j) {
-                        final m = models[j];
-                        return Tooltip(
-                          message: '${m.w}×${m.d}×${m.h} m',
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(10),
-                            onTap: () {
-                              _placeModel(m.id);
-                              Navigator.pop(ctx2);
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 10),
-                              decoration: BoxDecoration(
-                                color: JiajiaColors.raised,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: JiajiaColors.line),
-                              ),
-                              child: Column(
-                                children: [
-                                  Icon(
-                                    Icons.category,
-                                    color: Color(0xFF000000 | m.color),
-                                    size: 26,
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    m.label,
-                                    style: const TextStyle(
-                                      color: JiajiaColors.text1,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                  Text(
-                                    '${m.w.toStringAsFixed(2)}×'
-                                    '${m.d.toStringAsFixed(2)}×'
-                                    '${m.h.toStringAsFixed(2)}m',
-                                    style: TextStyle(
-                                      color: JiajiaColors.text2,
-                                      fontSize: 9,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
+      builder: (_) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.45,
+        minChildSize: 0.4,
+        maxChildSize: 0.7,
+        builder: (c, sc) => ListView(
+          controller: sc,
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Text(
+              '模块',
+              style: TextStyle(
+                color: JiajiaColors.text1,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
               ),
-            );
-          },
-        );
-      },
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _moduleEntry(
+                  '门',
+                  Icons.door_sliding,
+                  () => _openModuleModelsSheet('门 · 素材', ModelItems.ofCategory('门')),
+                ),
+                _moduleEntry(
+                  '窗',
+                  Icons.crop_square,
+                  () => _openModuleModelsSheet('窗 · 素材', ModelItems.ofCategory('窗')),
+                ),
+                _moduleEntry(
+                  '梁柱',
+                  Icons.architecture,
+                  () => _openModuleModelsSheet(
+                    '梁柱 · 素材',
+                    ModelItems.byCategories(['柱', '台面/五金']),
+                  ),
+                ),
+                _moduleEntry(
+                  '楼梯',
+                  Icons.escalator,
+                  () => _openModuleModelsSheet('楼梯 · 素材', ModelItems.ofCategory('楼梯')),
+                ),
+                _moduleEntry('拆改', Icons.call_split, _openRenovSheet),
+                _moduleEntry(
+                  '特殊墙窗',
+                  Icons.opacity,
+                  () => _openModuleModelsSheet('特殊墙窗 · 素材', ModelItems.ofCategory('特殊墙窗')),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
-  void _placeModel(String mid) {
-    final asset = ModelAssets.byId(mid);
-    if (asset == null) return;
-    final center = _cam.toWorld(
-      Offset(_canvasSize.width / 2, _canvasSize.height / 2),
+  Widget _moduleEntry(String label, IconData icon, VoidCallback onTap) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: Container(
+        width: 96,
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: JiajiaColors.raised,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: JiajiaColors.line),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 20, color: JiajiaColors.accent),
+            const SizedBox(height: 4),
+            Text(label, style: const TextStyle(color: JiajiaColors.text1, fontSize: 12)),
+          ],
+        ),
+      ),
     );
-    final plan = ref.read(editorDocProvider).plan;
-    final pos = _snapPoint(center, plan);
-    ref.read(editorDocProvider.notifier).mutate((p) {
-      final id = p.newId('i');
-      p.items[id] = FurnitureItem(
-        id: id,
-        kind: FurnitureKind.asset,
-        pos: pos,
-        modelId: mid,
-      );
-      _sel = _Sel(id, 'item');
-    });
-    _toast('已放 ${asset.label}：2D 为占地框，切 3D 看真实形状');
   }
 
-  // ---------------- 模型（原 app「模型」模块：门/窗/柱/楼梯/台面五金） ----------------
-
-  /// 模型面板：5 类 tab + 图标网格（原 app draw/ 图标）。选中 → 进入放置模式。
-  void _openModelItemsSheet() {
+  /// 模块二级：素材网格（门/窗/梁柱/楼梯/特殊墙窗 共用）。选中 → 进入放置模式。
+  void _openModuleModelsSheet(String title, List<ModelSpec> items) {
+    Navigator.pop(context); // 收一级菜单
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: JiajiaColors.surface,
-      builder: (ctx) {
-        int catIdx = 0;
-        return StatefulBuilder(
-          builder: (ctx2, setIt) {
-            final cat = ModelItems.categories[catIdx];
-            final items = ModelItems.ofCategory(cat);
-            return DraggableScrollableSheet(
-              expand: false,
-              initialChildSize: 0.6,
-              minChildSize: 0.4,
-              maxChildSize: 0.9,
-              builder: (BuildContext c, ScrollController sc) => Column(
+      builder: (_) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.6,
+        minChildSize: 0.4,
+        maxChildSize: 0.9,
+        builder: (c, sc) => ListView(
+          controller: sc,
+          padding: const EdgeInsets.all(12),
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '$title（${items.length} 件）',
+                    style: const TextStyle(
+                      color: JiajiaColors.text1,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _openModuleSheet();
+                  },
+                  child: const Text('← 模块', style: TextStyle(fontSize: 12)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate:
+                  const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                mainAxisSpacing: 8,
+              ),
+              itemCount: items.length,
+              itemBuilder: (_, j) {
+                final m = items[j];
+                return InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _startPlacingModel(m);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    decoration: BoxDecoration(
+                      color: JiajiaColors.raised,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: JiajiaColors.line),
+                    ),
+                    child: Column(
+                      children: [
+                        if (m.icon != null)
+                          Image.asset(
+                            m.icon!,
+                            width: 34,
+                            height: 34,
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, _, _) => Icon(
+                              m.place == ModelPlace.wall ? Icons.open_in_full : Icons.category,
+                              color: JiajiaColors.text2,
+                              size: 26,
+                            ),
+                          )
+                        else
+                          Icon(
+                            m.place == ModelPlace.wall ? Icons.open_in_full : Icons.category,
+                            color: JiajiaColors.accent,
+                            size: 26,
+                          ),
+                        const SizedBox(height: 4),
+                        Text(
+                          m.label,
+                          style: const TextStyle(color: JiajiaColors.text1, fontSize: 12),
+                        ),
+                        Text(
+                          m.specText,
+                          style: TextStyle(color: JiajiaColors.text2, fontSize: 9),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 模块 → 拆改：分房间（先做）/ 合并房间（待上线）。
+  void _openRenovSheet() {
+    Navigator.pop(context);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: JiajiaColors.surface,
+      builder: (_) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.4,
+        minChildSize: 0.35,
+        maxChildSize: 0.6,
+        builder: (c, sc) => ListView(
+          controller: sc,
+          padding: const EdgeInsets.all(16),
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    '拆改',
+                    style: TextStyle(
+                      color: JiajiaColors.text1,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _openModuleSheet();
+                  },
+                  child: const Text('← 模块', style: TextStyle(fontSize: 12)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _renovOption('分房间', '一个房间一分为二（加隔墙，可带门）', true, () {
+              Navigator.pop(context);
+              _splitSelectedRoom();
+            }),
+            const SizedBox(height: 8),
+            _renovOption('合并房间', '两间合一（待上线）', false, () {}),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _renovOption(String title, String hint, bool enabled, VoidCallback onTap) {
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: JiajiaColors.raised,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: JiajiaColors.line),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '模型 · $cat（${items.length} 件）',
-                            style: const TextStyle(
-                              color: JiajiaColors.text1,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        const Text(
-                          '原 app 同款图标',
-                          style: TextStyle(color: JiajiaColors.text2, fontSize: 11),
-                        ),
-                      ],
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: enabled ? JiajiaColors.text1 : JiajiaColors.text3,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  SizedBox(
-                    height: 36,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      children: [
-                        for (var i = 0; i < ModelItems.categories.length; i++)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 6),
-                            child: ChoiceChip(
-                              label: Text(
-                                ModelItems.categories[i],
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              selected: i == catIdx,
-                              onSelected: (_) => setIt(() => catIdx = i),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: GridView.builder(
-                      padding: const EdgeInsets.all(12),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
-                            mainAxisSpacing: 8,
-                          ),
-                      itemCount: items.length,
-                      itemBuilder: (_, j) {
-                        final m = items[j];
-                        return InkWell(
-                          borderRadius: BorderRadius.circular(10),
-                          onTap: () {
-                            _startPlacingModel(m);
-                            Navigator.pop(ctx2);
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            decoration: BoxDecoration(
-                              color: JiajiaColors.raised,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: JiajiaColors.line),
-                            ),
-                            child: Column(
-                              children: [
-                                Image.asset(
-                                  m.icon,
-                                  width: 34,
-                                  height: 34,
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (_, _, _) => Icon(
-                                    m.place == ModelPlace.wall
-                                        ? Icons.open_in_full
-                                        : Icons.category,
-                                    color: JiajiaColors.text2,
-                                    size: 26,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  m.label,
-                                  style: const TextStyle(
-                                    color: JiajiaColors.text1,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                                Text(
-                                  m.specText,
-                                  style: TextStyle(
-                                    color: JiajiaColors.text2,
-                                    fontSize: 9,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
+                  Text(hint, style: const TextStyle(color: JiajiaColors.text2, fontSize: 11)),
                 ],
               ),
-            );
-          },
-        );
-      },
+            ),
+            Icon(
+              Icons.chevron_right,
+              size: 18,
+              color: enabled ? JiajiaColors.accent : JiajiaColors.text3,
+            ),
+          ],
+        ),
+      ),
     );
+  }
+
+  /// 拆改·分房间：选中房间 → 拆房对话框；未选 → 提示先选。
+  void _splitSelectedRoom() {
+    final i = _roomIndexOf();
+    if (i == null) {
+      _toast('先点选一个房间，再走 模块 → 拆改 → 分房间');
+      return;
+    }
+    _openSplitDialog(i);
   }
 
   /// 进入放置模式：门/窗 → 点墙开洞；柱/楼梯/台面五金 → 点地面摆放。
+  /// 放置成功后自动回「选择」（v0.1.17 防误操作），选中态保留新件。
   void _startPlacingModel(ModelSpec m) {
     _setTool(EditorTool.furniture);
     _pendingModel = m;
     _toast(m.place == ModelPlace.wall
-        ? '放置「${m.label}」：点一面墙开洞（可连续放，点「选择」结束）'
-        : '放置「${m.label}」：点画布摆放（可连续放，点「选择」结束）');
+        ? '放置「${m.label}」：点一面墙开洞（放下后自动回选择）'
+        : '放置「${m.label}」：点画布摆放（放下后自动回选择）');
   }
 
   void _placeModelItem(Offset local, FloorPlan plan) {
@@ -844,6 +832,8 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
         );
       });
       _toast('${m.noLeaf ? '开洞' : '已开'} ${m.specText}');
+      // v0.1.17：放置/开洞确认即回「选择」，防误操作
+      _setTool(EditorTool.select);
     } else {
       final fid = plan.newId('i');
       notifier.mutate((p) {
@@ -854,7 +844,9 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
         );
         _sel = _Sel(fid, 'item');
       });
-      _toast('已放「${m.label}」（选「选择」后可拖动位置）');
+      _toast('已放「${m.label}」（已回选择，点中后可拖动位置）');
+      _setTool(EditorTool.select);
+      setState(() => _sel = _Sel(fid, 'item')); // 保留选中新件（_setTool 会清 _sel）
     }
   }
 
@@ -1350,7 +1342,10 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
       ),
-      builder: (_) => _OpeningDialog(openingId: openingId),
+      builder: (_) => _OpeningDialog(
+        openingId: openingId,
+        onApplied: () => _setTool(EditorTool.select),
+      ),
     );
   }
 
@@ -1486,7 +1481,10 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
       ),
-      builder: (_) => _WallDialog(wallId: wallId),
+      builder: (_) => _WallDialog(
+        wallId: wallId,
+        onApplied: () => _setTool(EditorTool.select),
+      ),
     );
   }
 
@@ -1545,6 +1543,58 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     }
     return null;
   }
+}
+
+/// 选中家具/模型件的操作条：删除/取消（底栏删除工具并入后的件删除入口）。
+class _ItemActionBar extends ConsumerWidget {
+  final String itemId;
+  final FloorPlan plan;
+  final VoidCallback onRemove;
+  final VoidCallback onClear;
+  const _ItemActionBar({
+    required this.itemId,
+    required this.plan,
+    required this.onRemove,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final item = plan.items[itemId];
+    if (item == null) return const SizedBox.shrink();
+    final label = item.modelId == null
+        ? FurnitureCatalog.labelOf(item.kind)
+        : (ModelAssets.byId(item.modelId!)?.label ?? item.kind.name);
+    return Container(
+      color: JiajiaColors.raised,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '已放 $label · 拖动可移位置',
+                  style: const TextStyle(fontSize: 11, color: JiajiaColors.text2),
+                ),
+              ),
+              _act('删除', Icons.delete_outline, onRemove),
+              _act('取消', Icons.close, onClear),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _act(String label, IconData icon, VoidCallback cb) => Padding(
+        padding: const EdgeInsets.only(left: 4),
+        child: TextButton.icon(
+          icon: Icon(icon, size: 15),
+          label: Text(label, style: const TextStyle(fontSize: 12)),
+          onPressed: cb,
+        ),
+      );
 }
 
 /// 选中墙时的快捷操作条。
@@ -1808,7 +1858,10 @@ class _SplitDialogState extends ConsumerState<_SplitDialog> {
 ///  ② 开洞：门型（门洞/单开门/双开门/移门/窗）+ 离墙距离 + 宽 + 高（+窗台）
 class _WallDialog extends ConsumerStatefulWidget {
   final String wallId;
-  const _WallDialog({required this.wallId});
+
+  /// v0.1.17：墙尺寸/开洞「应用」成功后回「选择」工具（防误操作）。
+  final VoidCallback? onApplied;
+  const _WallDialog({required this.wallId, this.onApplied});
 
   @override
   ConsumerState<_WallDialog> createState() => _WallDialogState();
@@ -1895,6 +1948,7 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
       }
     });
     _msg('墙尺寸已更新');
+    widget.onApplied?.call();
   }
 
   void _addOpening() {
@@ -1926,6 +1980,7 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
       );
     });
     _msg('已加开洞');
+    widget.onApplied?.call();
     if (context.mounted) Navigator.pop(context);
   }
 
@@ -2090,7 +2145,10 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
 
 class _OpeningDialog extends ConsumerStatefulWidget {
   final String openingId;
-  const _OpeningDialog({required this.openingId});
+
+  /// v0.1.17：参数「应用」/删除成功后回「选择」工具。
+  final VoidCallback? onApplied;
+  const _OpeningDialog({required this.openingId, this.onApplied});
 
   @override
   ConsumerState<_OpeningDialog> createState() => _OpeningDialogState();
@@ -2198,6 +2256,7 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
       );
     });
     _msg('开洞参数已更新');
+    widget.onApplied?.call();
     if (context.mounted) Navigator.pop(context);
   }
 
@@ -2339,6 +2398,7 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
                 ref.read(editorDocProvider.notifier).mutate((p) {
                   p.openings.remove(o.id);
                 });
+                widget.onApplied?.call();
                 if (context.mounted) Navigator.pop(context);
               },
               child: const Text('删除该开洞', style: TextStyle(fontSize: 13)),

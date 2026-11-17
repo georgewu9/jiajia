@@ -177,17 +177,24 @@ void main() {
       expect(plan.roomLoops().single.area, closeTo(7.5, 0.01));
     });
 
-    testWidgets('面积 chip 开关不崩', (tester) async {
+    testWidgets('面积标注常显：建房后画布重绘无异常（v0.1.17 无开关）',
+        (tester) async {
       await pumpEditorTall(tester);
       await tester.tap(find.text('建房'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300)); // DSS 动画
       await tester.tap(find.text('创建房间'));
       await tester.pump();
-      await tester.tap(find.text('面积'));
-      await tester.pump();
-      // 开启面积标注后画布重绘无异常
+      await tester.pump(const Duration(milliseconds: 100));
+      // 面积标注默认常显，画布重绘无异常
       expect(find.byKey(const ValueKey('cv')), findsOneWidget);
+      // 底栏四个主入口按序存在，旧按钮已并入模块
+      expect(find.text('选择'), findsOneWidget);
+      expect(find.text('画墙'), findsOneWidget);
+      expect(find.text('建房'), findsOneWidget);
+      expect(find.text('模块'), findsOneWidget);
+      expect(find.text('开洞'), findsNothing);
+      expect(find.text('删除'), findsNothing);
     });
   });
 }

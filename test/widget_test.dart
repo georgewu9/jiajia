@@ -24,9 +24,10 @@ void main() {
     expect(find.text('3D 浏览'), findsOneWidget);
     await tester.tap(find.text('开始画户型'));
     await tester.pumpAndSettle();
-    // 编辑器工具条出现
+    // 编辑器工具条出现（v0.1.17：选择/画墙/建房/模块 四主入口）
+    expect(find.text('选择'), findsOneWidget);
     expect(find.text('画墙'), findsOneWidget);
-    expect(find.text('家具'), findsOneWidget);
+    expect(find.text('模块'), findsOneWidget);
   });
 
   testWidgets('落地页有「我的户型」区块（空态提示，v0.1.11）', (tester) async {

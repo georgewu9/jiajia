@@ -7,9 +7,9 @@ enum ModelPlace { wall, floor }
 
 class ModelSpec {
   final String id;
-  final String category; // 门/窗/柱/楼梯/台面五金
+  final String category; // 门/窗/柱/楼梯/台面五金/特殊墙窗
   final String label;
-  final String icon; // assets/models2d/icon_*.png|jpeg
+  final String? icon; // assets/models2d/icon_*.png|jpeg；null = 无原 app 图标（用占位图标）
   final ModelPlace place;
 
   // ---- wall（门/窗）参数，mm ----
@@ -27,7 +27,7 @@ class ModelSpec {
     required this.id,
     required this.category,
     required this.label,
-    required this.icon,
+    this.icon,
     required this.place,
     this.kind = OpeningKind.door,
     this.doorType = DoorType.single,
@@ -54,7 +54,14 @@ class ModelSpec {
 class ModelItems {
   const ModelItems._();
 
-  static const categories = ['门', '窗', '柱', '楼梯', '台面/五金'];
+  static const categories = [
+    '门',
+    '窗',
+    '柱',
+    '楼梯',
+    '台面/五金',
+    '特殊墙窗',
+  ];
 
   static const List<ModelSpec> all = [
     // ---------- 门 ----------
@@ -322,8 +329,38 @@ class ModelItems {
       place: ModelPlace.floor,
       floorKind: FurnitureKind.switchPanel,
     ),
+    // ---------- 楼梯（模块扩展：平台） ----------
+    ModelSpec(
+      id: 'pingtai',
+      category: '楼梯',
+      label: '平台',
+      place: ModelPlace.floor,
+      floorKind: FurnitureKind.landing,
+    ),
+    // ---------- 特殊墙窗 ----------
+    ModelSpec(
+      id: 'huxiangqiang',
+      category: '特殊墙窗',
+      label: '弧形墙',
+      place: ModelPlace.floor,
+      floorKind: FurnitureKind.arcWall,
+    ),
+    ModelSpec(
+      id: 'huxiangchuang',
+      category: '特殊墙窗',
+      label: '弧形窗',
+      place: ModelPlace.wall,
+      kind: OpeningKind.window,
+      defaultWmm: 1500,
+      sillMm: 900,
+      heightMm: 1500,
+    ),
   ];
 
   static List<ModelSpec> ofCategory(String c) =>
       all.where((m) => m.category == c).toList(growable: false);
+
+  /// 多类合并（模块·梁柱 = 柱 + 台面/五金）。
+  static List<ModelSpec> byCategories(Iterable<String> cs) =>
+      all.where((m) => cs.contains(m.category)).toList(growable: false);
 }

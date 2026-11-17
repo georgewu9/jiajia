@@ -109,15 +109,18 @@ void main() {
   });
 
   group('model: 模型目录（原 app 图标）', () {
-    test('5 类目录齐 + 28 件', () {
+    test('目录齐 + 31 件（v0.1.17 新增 平台/弧形墙/弧形窗）', () {
       expect(ModelItems.categories,
-          ['门', '窗', '柱', '楼梯', '台面/五金']);
-      expect(ModelItems.all.length, 28);
+          ['门', '窗', '柱', '楼梯', '台面/五金', '特殊墙窗']);
+      expect(ModelItems.all.length, 31);
       expect(ModelItems.ofCategory('门').length, 5);
       expect(ModelItems.ofCategory('窗').length, 6);
       expect(ModelItems.ofCategory('柱').length, 2);
-      expect(ModelItems.ofCategory('楼梯').length, 3);
+      expect(ModelItems.ofCategory('楼梯').length, 4);
       expect(ModelItems.ofCategory('台面/五金').length, 12);
+      expect(ModelItems.ofCategory('特殊墙窗').length, 2);
+      expect(
+          ModelItems.byCategories(['柱', '台面/五金']).length, 14);
       expect(ModelItems.ofCategory('门').every((m) => m.place == ModelPlace.wall), true);
       final zhu = ModelItems.ofCategory('柱');
       expect(zhu.every((m) => m.place == ModelPlace.floor), true);
@@ -126,19 +129,30 @@ void main() {
   });
 
   group('editor: 模型放置 + 拆房面板', () {
-    testWidgets('模型 chip → 面板 5 类 tab 可切（widget 存在）',
-        (tester) async {
+    testWidgets('模块一级菜单 → 二级素材网格可切（v0.1.17）', (tester) async {
       await pumpEditorTall(tester);
-      await tester.tap(find.text('模型'));
+      await tester.tap(find.text('模块'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text('模型 · 门（5 件）'), findsOneWidget);
-      await tester.tap(find.text('窗'));
+      // 一级：6 入口
+      expect(find.text('门'), findsOneWidget);
+      expect(find.text('拆改'), findsOneWidget);
+      expect(find.text('特殊墙窗'), findsOneWidget);
+      // 二级：门（含门洞）
+      await tester.tap(find.text('门'));
       await tester.pump();
-      expect(find.text('模型 · 窗（6 件）'), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('门 · 素材（5 件）'), findsOneWidget);
+      expect(find.text('门洞'), findsOneWidget);
+      // 返回一级 → 楼梯（含平台）
+      await tester.tap(find.text('← 模块'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
       await tester.tap(find.text('楼梯'));
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
       expect(find.text('直楼梯'), findsOneWidget);
+      expect(find.text('平台'), findsOneWidget);
     });
 
     testWidgets('选门 → 点墙开洞（参数正确）', (tester) async {
@@ -156,7 +170,10 @@ void main() {
       final plan = container.read(editorDocProvider).plan;
       expect(plan.walls.length, 4);
       expect(plan.openings.isEmpty, true); // 未勾选底墙加门
-      await tester.tap(find.text('模型'));
+      await tester.tap(find.text('模块'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('门'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       await tester.tap(find.text('单开门'));
@@ -182,11 +199,12 @@ void main() {
 
     testWidgets('选柱 → 点画布摆放下（item 生成）', (tester) async {
       final (container, _) = await pumpEditorTall(tester);
-      await tester.tap(find.text('模型'));
+      await tester.tap(find.text('模块'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      await tester.tap(find.text('柱'));
+      await tester.tap(find.text('梁柱'));
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
       await tester.tap(find.text('方柱'));
       await tester.pump();
       final cvF = find.byKey(const ValueKey('cv'));

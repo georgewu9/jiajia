@@ -187,6 +187,12 @@ enum FurnitureKind {
   socketWall,
   socketFloor,
   switchPanel,
+
+  /// 楼梯平台（模块·楼梯）。
+  landing,
+
+  /// 弧形墙（模块·特殊墙窗；本版以薄墙段占位摆放，弧线绘制后续迭代）。
+  arcWall,
 }
 
 class FurnitureCatalog {
@@ -232,6 +238,8 @@ class FurnitureCatalog {
     FurnitureKind.socketWall: (0.1, 0.1, 0.1, 0x6FCF97),
     FurnitureKind.socketFloor: (0.12, 0.12, 0.02, 0x6FCF97),
     FurnitureKind.switchPanel: (0.1, 0.1, 0.1, 0xE5C97A),
+    FurnitureKind.landing: (1.2, 1.2, 0.15, 0x9AA4B8),
+    FurnitureKind.arcWall: (2.0, 0.24, 2.8, 0x9C8B7A),
   };
 
   /// 家具工具栏可选种类（不含素材模型 asset —— 走「素材」入口）。
@@ -298,6 +306,8 @@ class FurnitureCatalog {
       FurnitureKind.socketWall: '墙插',
       FurnitureKind.socketFloor: '地插',
       FurnitureKind.switchPanel: '开关',
+      FurnitureKind.landing: '平台',
+      FurnitureKind.arcWall: '弧形墙',
     };
     return names[k]!;
   }
