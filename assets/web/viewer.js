@@ -308,6 +308,10 @@
 
   function buildItems(plan) {
     plan.items.forEach(function (i) {
+      // v0.1.20：自定义尺寸（米）→ 目录盒/模型等比缩放
+      var sw = (typeof i.sw === 'number') ? i.sw : null;
+      var sd = (typeof i.sd === 'number') ? i.sd : null;
+      var sh = (typeof i.sh === 'number') ? i.sh : null;
       var modelMid = i.model && window.JJ_MODELS && window.JJ_MODELS[i.model]
           ? i.model : null;
       if (modelMid) {
@@ -315,6 +319,12 @@
         if (proto) {
           var mesh = proto.clone(true);
           var md = window.JJ_MODELS[modelMid];
+          if (sw != null || sd != null || sh != null) {
+            var sx = sw != null && md.w ? sw / md.w : 1;
+            var sz = sd != null && md.d ? sd / md.d : 1;
+            var sy = sh != null && md.h ? sh / md.h : (sx + sz) / 2;
+            mesh.scale.set(sx, sy, sz);
+          }
           mesh.position.set(i.x, 0, i.y);
           mesh.rotation.y = -((i.rot || 0) * Math.PI / 180);
           mesh.userData = { id: i.id, kind: i.kind, model: modelMid };
@@ -324,10 +334,13 @@
       }
       var spec = CATALOG[i.kind];
       if (!spec) return;
+      var bw = sw != null ? sw : spec[0];
+      var bd = sd != null ? sd : spec[1];
+      var bh = sh != null ? sh : spec[2];
       var box = new THREE.Mesh(
-          new THREE.BoxGeometry(spec[0], spec[2], spec[1]),
+          new THREE.BoxGeometry(bw, bh, bd),
           new THREE.MeshStandardMaterial({ color: spec[3] }));
-      box.position.set(i.x, spec[2] / 2, i.y);
+      box.position.set(i.x, bh / 2, i.y);
       box.rotation.y = -((i.rot || 0) * Math.PI / 180);
       box.userData = { id: i.id, kind: i.kind };
       root.add(box);

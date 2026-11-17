@@ -79,6 +79,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   Vec2? _wallCur; // 画墙拖拽实时终点
   final _cam = CameraCtrl();
   bool _draggingItem = false;
+  bool _draggingOpening = false; // 选中开洞后按住拖动 → 沿墙平移（改位置）
   bool _draggingWall = false; // 选中墙后单指按住该墙拖动 = 平移整面墙（非平移相机）
   Size _canvasSize = const Size(360, 480);
   final GlobalKey _paintKey = GlobalKey();
@@ -282,6 +283,20 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                     onClear: () => setState(() => _sel = null),
                   ),
                 ),
+              // 选中开洞（门/窗）时：单击选中也给「改尺寸/位置 + 拖动沿墙移动」出口
+              if (_sel?.type == 'opening')
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 64,
+                  child: _OpeningActionBar(
+                    openingId: _sel!.id,
+                    plan: plan,
+                    onOpen: () => _openOpeningDialog(_sel!.id),
+                    onRemove: () => _eraseOpening(_sel!.id),
+                    onClear: () => setState(() => _sel = null),
+                  ),
+                ),
               // 选中房间时：拆/合/删 操作条（原 app 分房入口）
               if (_sel?.type == 'room')
                 Positioned(
@@ -317,6 +332,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                   child: _ItemActionBar(
                     itemId: _sel!.id,
                     plan: plan,
+                    onEdit: () => _openItemDialog(_sel!.id),
                     onRemove: () {
                       ref
                           .read(editorDocProvider.notifier)
@@ -1144,6 +1160,8 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
         final hit = _hitTest(plan, world);
         _draggingItem =
             hit != null && hit.id == _sel?.id && hit.type == 'item';
+        _draggingOpening =
+            hit != null && hit.id == _sel?.id && hit.type == 'opening';
         // 按住「选中的墙」→ 平移该墙（含墙上门窗）；按住别处 → 平移相机
         _draggingWall = hit != null && hit.type == 'wall' && hit.id == _sel?.id;
         break;
@@ -1159,7 +1177,22 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
         _wallCur = _snapPoint(_cam.toWorld(local), plan, anchor: _wallStart);
         setState(() {});
       case EditorTool.select:
-        if (_draggingWall && _sel != null) {
+        if (_draggingOpening && _sel != null) {
+          // 开洞沿墙拖动改位置：投影到墙起点距离 clamp 到墙内
+          ref.read(editorDocProvider.notifier).mutate((p2) {
+            final o = p2.openings[_sel!.id];
+            final w = o == null ? null : p2.walls[o.wallId];
+            if (o == null || w == null) return;
+            final worldNow = _cam.toWorld(local);
+            final ab = w.b - w.a;
+            final alen2 = ab.dx * ab.dx + ab.dy * ab.dy;
+            if (alen2 < 1e-12) return;
+            final dv = worldNow - w.a;
+            final t = (dv.dx * ab.dx + dv.dy * ab.dy) / alen2;
+            o.offset =
+                (t * math.sqrt(alen2) - o.width / 2).clamp(0.02, math.max(0.02, w.length - o.width - 0.02));
+          }, record: false);
+        } else if (_draggingWall && _sel != null) {
           // 墙 a 端点是 final → 重建 Wall；墙上开洞按 wallId 跟随，无需迁移
           ref.read(editorDocProvider.notifier).mutate((p2) {
             final w = p2.walls[_sel!.id];
@@ -1204,6 +1237,10 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
           ref.read(editorDocProvider.notifier).mutate((p2) {}, record: true);
           _draggingItem = false;
         }
+        if (_draggingOpening) {
+          ref.read(editorDocProvider.notifier).mutate((p2) {}, record: true);
+          _draggingOpening = false;
+        }
       default:
         break;
     }
@@ -1214,6 +1251,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     _wallStart = _wallCur = null;
     _downLocal = null;
     _draggingItem = false;
+    _draggingOpening = false;
     _draggingWall = false;
     setState(() {});
   }
@@ -1325,6 +1363,10 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       _openOpeningDialog(oHit.id);
       return;
     }
+    if (oHit != null && oHit.type == 'item') {
+      _openItemDialog(oHit.id); // v0.1.20：双击物品→改尺寸/旋转
+      return;
+    }
     final wh = _hitWall(plan, world);
     if (wh != null) {
       _openWallDialog(wh.id);
@@ -1356,6 +1398,29 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       if (_sel?.id == wallId) _sel = null;
     });
     setState(() {});
+  }
+
+  void _eraseOpening(String openingId) {
+    ref.read(editorDocProvider.notifier).mutate((p) {
+      p.openings.remove(openingId);
+      if (_sel?.id == openingId) _sel = null;
+    });
+    setState(() {});
+  }
+
+  void _openItemDialog(String itemId) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: JiajiaColors.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+      ),
+      builder: (_) => _ItemDialog(
+        itemId: itemId,
+        onApplied: () => _setTool(EditorTool.select),
+      ),
+    );
   }
 
   void _toast(String m) {
@@ -1526,7 +1591,8 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       final t = _paramOnWall(wall, w);
       if (t == null) continue;
       final off = wall.length * t;
-      if ((off - o.offset).abs() < o.width / 2 + 0.05) {
+      // v0.1.20：命中带从 0.05 放宽到 0.15（小洞口在 fit 缩放下也只有 ~20px，手指很难精确点中；用户报「双击选中门窗很不容易」）
+      if ((off - o.offset).abs() < o.width / 2 + 0.15) {
         return _Sel(o.id, 'opening');
       }
     }
@@ -1540,7 +1606,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       final dy = w.dy - i.pos.dy;
       final lx = dx * c + dy * s;
       final ly = -dx * s + dy * c;
-      if (lx.abs() < fw / 2 + 0.08 && ly.abs() < fd / 2 + 0.08) {
+      if (lx.abs() < fw / 2 + 0.18 && ly.abs() < fd / 2 + 0.18) {
         return _Sel(i.id, 'item');
       }
     }
@@ -1552,11 +1618,13 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
 class _ItemActionBar extends ConsumerWidget {
   final String itemId;
   final FloorPlan plan;
+  final VoidCallback onEdit;
   final VoidCallback onRemove;
   final VoidCallback onClear;
   const _ItemActionBar({
     required this.itemId,
     required this.plan,
+    required this.onEdit,
     required this.onRemove,
     required this.onClear,
   });
@@ -1577,11 +1645,66 @@ class _ItemActionBar extends ConsumerWidget {
             children: [
               Expanded(
                 child: Text(
-                  '已放 $label · 拖动可移位置',
+                  '已放 $label · 拖动可移位置 · 双击改尺寸/旋转',
                   style: const TextStyle(fontSize: 11, color: JiajiaColors.text2),
                 ),
               ),
+              _act('改尺寸', Icons.straighten, onEdit),
               _act('删除', Icons.delete_outline, onRemove),
+              _act('取消', Icons.close, onClear),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _act(String label, IconData icon, VoidCallback cb) => Padding(
+        padding: const EdgeInsets.only(left: 4),
+        child: TextButton.icon(
+          icon: Icon(icon, size: 15),
+          label: Text(label, style: const TextStyle(fontSize: 12)),
+          onPressed: cb,
+        ),
+      );
+}
+
+/// 选中开洞（门/窗）的操作条：改尺寸/位置 + 沿墙拖动提示 + 删除。
+class _OpeningActionBar extends StatelessWidget {
+  final String openingId;
+  final FloorPlan plan;
+  final VoidCallback onOpen;
+  final VoidCallback onRemove;
+  final VoidCallback onClear;
+
+  const _OpeningActionBar({
+    required this.openingId,
+    required this.plan,
+    required this.onOpen,
+    required this.onRemove,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final o = plan.openings[openingId];
+    if (o == null) return const SizedBox.shrink();
+    return Container(
+      color: JiajiaColors.raised,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${o.label} · 拖动可沿墙改位置',
+                  style: const TextStyle(fontSize: 11, color: JiajiaColors.text2),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              _act('改尺寸', Icons.straighten, onOpen),
+              _act('删开洞', Icons.delete_outline, onRemove),
               _act('取消', Icons.close, onClear),
             ],
           ),
@@ -2475,6 +2598,214 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
 }
 
 // ---------------- 绘制 ----------------
+
+/// v0.1.20：物品改尺寸/旋转对话框（双击或操作条进入）。
+class _ItemDialog extends ConsumerStatefulWidget {
+  final String itemId;
+
+  /// 应用成功后回「选择」工具。
+  final VoidCallback? onApplied;
+  const _ItemDialog({required this.itemId, this.onApplied});
+
+  @override
+  ConsumerState<_ItemDialog> createState() => _ItemDialogState();
+}
+
+class _ItemDialogState extends ConsumerState<_ItemDialog> {
+  late final TextEditingController _wC;
+  late final TextEditingController _dC;
+  late final TextEditingController _hC;
+  late double _rot;
+
+  @override
+  void initState() {
+    super.initState();
+    final item = ref.read(editorDocProvider).plan.items[widget.itemId];
+    final (bw, bd, bh) = item?.baseDims ?? (1.0, 1.0, 1.0);
+    _wC = TextEditingController(text: '${toMm(item?.sizeW ?? bw)}');
+    _dC = TextEditingController(text: '${toMm(item?.sizeD ?? bd)}');
+    _hC = TextEditingController(text: '${toMm(item?.sizeH ?? bh)}');
+    _rot = item?.rotationDeg ?? 0;
+  }
+
+  @override
+  void dispose() {
+    for (final c in [_wC, _dC, _hC]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  int? _parseMm(TextEditingController f) {
+    final v = int.tryParse(f.text.trim());
+    if (v == null || v < 10) return null;
+    return v;
+  }
+
+  void _msg(String m) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger != null) {
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(SnackBar(content: Text(m)));
+    }
+  }
+
+  void _apply() {
+    final wMm = _parseMm(_wC), dMm = _parseMm(_dC), hMm = _parseMm(_hC);
+    if (wMm == null || dMm == null || hMm == null) {
+      _msg('尺寸需 ≥10mm 的整数（单位 mm）');
+      return;
+    }
+    ref.read(editorDocProvider.notifier).mutate((p) {
+      final it = p.items[widget.itemId];
+      if (it == null) return;
+      it.sizeW = fromMm(wMm);
+      it.sizeD = fromMm(dMm);
+      it.sizeH = fromMm(hMm);
+      it.rotationDeg = _rot;
+    });
+    _msg('尺寸/旋转已更新');
+    widget.onApplied?.call();
+    if (context.mounted) Navigator.pop(context);
+  }
+
+  void _delete() {
+    ref.read(editorDocProvider.notifier).mutate((p) {
+      p.items.remove(widget.itemId);
+    });
+    _msg('已删除该件');
+    widget.onApplied?.call();
+    if (context.mounted) Navigator.pop(context);
+  }
+
+  Widget _mmField(String label, TextEditingController c) => Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: TextFormField(
+          controller: c,
+          keyboardType: TextInputType.number,
+          style: const TextStyle(color: JiajiaColors.text1, fontSize: 14),
+          decoration: InputDecoration(
+            labelText: '$label (mm)',
+            labelStyle: const TextStyle(color: JiajiaColors.text3),
+            isDense: true,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: JiajiaColors.line),
+            ),
+          ),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final item = ref.watch(editorDocProvider).plan.items[widget.itemId];
+    if (item == null) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Text('该件已不存在', style: TextStyle(color: JiajiaColors.text2)),
+      );
+    }
+    final label = item.modelId == null
+        ? FurnitureCatalog.labelOf(item.kind)
+        : (ModelAssets.byId(item.modelId!)?.label ?? item.kind.name);
+    // 坑⑤：sheet 内容必须 DraggableScrollableSheet（与 _WallDialog 同款）
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.55,
+      minChildSize: 0.4,
+      maxChildSize: 0.85,
+      builder: (_, scrollCtrl) => Container(
+        color: JiajiaColors.surface,
+        child: SafeArea(
+          child: ListView(
+            controller: scrollCtrl,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+            children: [
+              Text(
+                '$label · 改尺寸/旋转',
+                style: const TextStyle(
+                  color: JiajiaColors.text1,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(child: _mmField('宽', _wC)),
+                  Expanded(child: _mmField('深', _dC)),
+                  Expanded(child: _mmField('高', _hC)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.rotate_left, color: JiajiaColors.accent),
+                    onPressed: () => setState(() => _rot = (_rot - 90) % 360),
+                  ),
+                  Expanded(
+                    child: Slider(
+                      value: _rot.clamp(0.0, 360.0),
+                      min: 0,
+                      max: 360,
+                      divisions: 72,
+                      activeColor: JiajiaColors.accent,
+                      inactiveColor: JiajiaColors.line,
+                      onChanged: (v) => setState(() => _rot = v),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.rotate_right, color: JiajiaColors.accent),
+                    onPressed: () => setState(() => _rot = (_rot + 90) % 360),
+                  ),
+                ],
+              ),
+              Wrap(
+                spacing: 6,
+                children: [0, 90, 180, 270]
+                    .map(
+                      (a) => ChoiceChip(
+                        label: Text('$a°'),
+                        selected: (_rot % 360).round() == a,
+                        selectedColor: JiajiaColors.selSoft,
+                        labelStyle: TextStyle(
+                          color: (_rot % 360).round() == a
+                              ? JiajiaColors.sel
+                              : JiajiaColors.text2,
+                          fontSize: 12,
+                        ),
+                        onSelected: (_) => setState(() => _rot = a.toDouble()),
+                      ),
+                    )
+                    .toList(),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  TextButton.icon(
+                    icon: const Icon(Icons.delete_outline, color: JiajiaColors.text3),
+                    label: const Text('删除该件', style: TextStyle(color: JiajiaColors.text3)),
+                    onPressed: _delete,
+                  ),
+                  const Spacer(),
+                  FilledButton(
+                    onPressed: _apply,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: JiajiaColors.accent,
+                      foregroundColor: JiajiaColors.bgBase,
+                    ),
+                    child: const Text('应用'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _PlanPainter extends CustomPainter {
   final FloorPlan plan;

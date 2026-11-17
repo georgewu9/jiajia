@@ -325,6 +325,8 @@ class FurnitureItem {
   Vec2 pos;
   double rotationDeg; // 绕 Z 轴，度
   final String? modelId; // 原 app 素材模型 id（OBJ/MTL，见 ModelAssets）；null=占位盒
+  // v0.1.20：自定义尺寸（米，null=用目录/素材默认值；JSON 键 sw/sd/sh，旧数据宽容解析）
+  double? sizeW, sizeD, sizeH;
 
   FurnitureItem({
     required this.id,
@@ -332,15 +334,27 @@ class FurnitureItem {
     required this.pos,
     this.rotationDeg = 0,
     this.modelId,
+    this.sizeW,
+    this.sizeD,
+    this.sizeH,
   });
 
-  /// 2D 占地（w×d，米）：素材模型用其归一化占地，否则占位盒。
-  (double, double) get footprint {
+  /// 目录/素材默认占地（宽×深×高，米）。
+  (double, double, double) get baseDims {
     final m = modelId == null ? null : ModelAssets.byId(modelId!);
-    if (m != null) return (m.w, m.d);
+    if (m != null) return (m.w, m.d, m.h);
     final s = FurnitureCatalog.spec[kind]!;
-    return (s.$1, s.$2);
+    return (s.$1, s.$2, s.$3);
   }
+
+  /// 2D 占地（宽×深，米）：自定义值优先，否则目录/素材默认。
+  (double, double) get footprint {
+    final b = baseDims;
+    return (sizeW ?? b.$1, sizeD ?? b.$2);
+  }
+
+  /// 3D 高度（米）：自定义值优先，否则目录/素材默认。
+  double get heightM => sizeH ?? baseDims.$3;
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -349,6 +363,9 @@ class FurnitureItem {
     'x': pos.toJson()['x'],
     'y': pos.toJson()['y'],
     'rot': rotationDeg.round(),
+    if (sizeW != null) 'sw': sizeW,
+    if (sizeD != null) 'sd': sizeD,
+    if (sizeH != null) 'sh': sizeH,
   };
 }
 
@@ -423,6 +440,9 @@ class FloorPlan {
         pos: Vec2((i['x'] as num).toDouble(), (i['y'] as num).toDouble()),
         rotationDeg: (i['rot'] as num?)?.toDouble() ?? 0,
         modelId: i['model'] as String?,
+        sizeW: (i['sw'] as num?)?.toDouble(),
+        sizeD: (i['sd'] as num?)?.toDouble(),
+        sizeH: (i['sh'] as num?)?.toDouble(),
       );
       p._seq = p.maxSeq(p._seq, i['id'] as String, 'i');
     }

@@ -227,13 +227,12 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
-      // 切选择工具 → 点房间内部（画布中心上方 80px：v0.1.18 墙命中容差
-      // 放大后，画布正中可能离底墙 <0.57m 会被判成选墙；上移保证在房间
-      // 内部且离每面墙 >0.6m）
+      // 切选择工具 → 点房间内部（v0.1.18：画布中心上方80px；v0.1.20：开洞命中容差
+      // 从 0.05 放宽到 0.15，原tap点会落入底墙上门的宽容差带，改用左上偏右点）
       await tester.tap(find.text('选择'));
       await tester.pump();
       final cvF = find.byKey(const ValueKey('cv'));
-      await tester.tapAt(tester.getCenter(cvF) - const Offset(0, 80));
+      await tester.tapAt(tester.getCenter(cvF) + const Offset(-200, -160));
       await tester.pump(const Duration(milliseconds: 400)); // 越过双击窗口
       await tester.pump();
       expect(find.textContaining('房间 ·'), findsOneWidget);
