@@ -1501,14 +1501,17 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   }
 
   _Sel? _hitWall(FloorPlan plan, Vec2 w) {
-    double best = 0.3;
+    // v0.1.18：命中修复。旧实现 best 初值 0.3 把容差封顶 0.3m——fit 缩放下
+    // 只有 ~18px，手指一偏就点不中墙（「有时无法选中」）。现按墙厚/2+0.45
+    // 的容差取最近的一根，手机上一根墙的命中宽度 ≈ 手指大小。
     _Sel? bestHit;
+    double best = double.infinity;
     for (final wall in plan.walls.values) {
       final t = _paramOnWall(wall, w);
       if (t == null) continue;
       final proj = wall.a + (wall.b - wall.a) * t;
       final d = w.distanceTo(proj);
-      if (d < wall.thickness / 2 + 0.25 && d < best) {
+      if (d < wall.thickness / 2 + 0.45 && d < best) {
         best = d;
         bestHit = _Sel(wall.id, 'wall');
       }
@@ -1878,6 +1881,7 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
 
   DoorType _dt = DoorType.single;
   bool _asWindow = false;
+  bool _outSwing = false; // v0.1.18：开门方向（外开=true）
 
   @override
   void initState() {
@@ -1977,6 +1981,12 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
         width: wM,
         sill: sill,
         height: fromMm(hMm),
+        outSwing:
+            (!_asWindow &&
+                (_dt == DoorType.single || _dt == DoorType.double))
+            ?
+            _outSwing :
+            false,
       );
     });
     _msg('已加开洞');
@@ -2103,6 +2113,31 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
               padding: const EdgeInsets.only(top: 6),
               child: Row(children: [Expanded(child: mmField('窗台高', _sillC))]),
             ),
+          if (!_asWindow &&
+              (_dt == DoorType.single || _dt == DoorType.double))
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Row(
+                children: [
+                  const Text(
+                    '开门方向',
+                    style: TextStyle(color: JiajiaColors.text3, fontSize: 12),
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('内开', style: TextStyle(fontSize: 12)),
+                    selected: !_outSwing,
+                    onSelected: (_) => setState(() => _outSwing = false),
+                  ),
+                  const SizedBox(width: 4),
+                  ChoiceChip(
+                    label: const Text('外开', style: TextStyle(fontSize: 12)),
+                    selected: _outSwing,
+                    onSelected: (_) => setState(() => _outSwing = true),
+                  ),
+                ],
+              ),
+            ),
           const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2161,6 +2196,7 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
   late final TextEditingController _hC;
   late OpeningKind _kind;
   late DoorType _dt;
+  late bool _outSwing; // v0.1.18：开门方向（外开=true，内开=false）
 
   @override
   void initState() {
@@ -2169,6 +2205,7 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
     if (o == null) {
       _kind = OpeningKind.door;
       _dt = DoorType.single;
+      _outSwing = false;
       _wC = TextEditingController(text: '900');
       _offC = TextEditingController(text: '450');
       _sillC = TextEditingController(text: '900');
@@ -2177,6 +2214,7 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
     }
     _kind = o.kind;
     _dt = o.doorType;
+    _outSwing = o.outSwing;
     _wC = TextEditingController(text: '${toMm(o.width)}');
     _offC = TextEditingController(text: '${toMm(o.offset)}');
     _sillC = TextEditingController(text: '${toMm(o.sill)}');
@@ -2253,6 +2291,10 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
         width: wM,
         sill: _kind == OpeningKind.window ? fromMm(sillMm) : 0.0,
         height: fromMm(hMm),
+        outSwing:
+            (_dt == DoorType.single || _dt == DoorType.double) ?
+            _outSwing :
+            false,
       );
     });
     _msg('开洞参数已更新');
@@ -2360,6 +2402,28 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
                   ),
               ],
             ),
+            if (_dt == DoorType.single || _dt == DoorType.double) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Text(
+                    '开门方向',
+                    style: TextStyle(color: JiajiaColors.text3, fontSize: 12),
+                  ),
+                  const SizedBox(width: 8),
+                  typeChip(
+                    '内开',
+                    !_outSwing,
+                    () => setState(() => _outSwing = false),
+                  ),
+                  typeChip(
+                    '外开',
+                    _outSwing,
+                    () => setState(() => _outSwing = true),
+                  ),
+                ],
+              ),
+            ],
           ],
           const SizedBox(height: 12),
           Row(
@@ -2457,13 +2521,13 @@ class _PlanPainter extends CustomPainter {
     canvas.drawPath(
       path,
       Paint()
-        ..color = JiajiaColors.accent.withValues(alpha: 0.12)
+        ..color = JiajiaColors.sel.withValues(alpha: 0.14)
         ..style = PaintingStyle.fill,
     );
     canvas.drawPath(
       path,
       Paint()
-        ..color = JiajiaColors.accent
+        ..color = JiajiaColors.sel
         ..strokeWidth = 2
         ..style = PaintingStyle.stroke,
     );
@@ -2576,7 +2640,7 @@ class _PlanPainter extends CustomPainter {
           text: TextSpan(
             text: '${toMm(w.length)}mm',
             style: TextStyle(
-              color: sel?.id == w.id ? JiajiaColors.accent : JiajiaColors.text2,
+              color: sel?.id == w.id ? JiajiaColors.sel : JiajiaColors.text2,
               fontSize: 10,
             ),
           ),
@@ -2623,9 +2687,14 @@ class _PlanPainter extends CustomPainter {
       final hB = p0 + vec * t1; // 开洞终点
       final oPx = o.width * cam.ppm;
 
+      // 选中开洞 → 亮黄高亮（v0.1.18）；门扇方向随 内开/外开（side ±1）
+      final openColor =
+          sel?.id == o.id ? JiajiaColors.sel : JiajiaColors.opening;
+      final swingSide = o.outSwing ? -1.0 : 1.0;
+
       final paint = Paint()
-        ..color = JiajiaColors.opening
-        ..strokeWidth = 2
+        ..color = openColor
+        ..strokeWidth = sel?.id == o.id ? 3 : 2
         ..style = PaintingStyle.stroke;
 
       switch (o.kind) {
@@ -2634,7 +2703,7 @@ class _PlanPainter extends CustomPainter {
           final lo = n * halfT * 0.45, hi = -n * halfT * 0.45;
           canvas.drawLine(hA + lo, hB + lo, paint..strokeWidth = 1.5);
           canvas.drawLine(hA + hi, hB + hi, paint..strokeWidth = 1.5);
-          _openLabel(canvas, (hA + hB) / 2 - n * (halfT + 12), o);
+          _openLabel(canvas, (hA + hB) / 2 - n * (halfT + 12), o, color: openColor);
           break;
 
         case OpeningKind.door:
@@ -2648,22 +2717,25 @@ class _PlanPainter extends CustomPainter {
                 paint,
                 dash: 8,
                 gap: 5,
-                color: JiajiaColors.opening,
+                color: openColor,
               );
-              _openLabel(canvas, (hA + hB) / 2 - n * (halfT + 12), o);
+              _openLabel(canvas, (hA + hB) / 2 - n * (halfT + 12), o, color: openColor);
               break;
 
             case DoorType.single:
               // 铰链在 hA：门扇弧线（半径=宽），门扇画在开启 45° 位
-              _doorSwing(canvas, hA, u, n, oPx, oPx, side: 1);
-              _openLabel(canvas, hA - n * (halfT + 12), o);
+              _doorSwing(canvas, hA, u, n, oPx, oPx,
+                  side: swingSide, color: openColor);
+              _openLabel(canvas, hA - n * (halfT + 12), o, color: openColor);
               break;
 
             case DoorType.double:
               // 双扇：两端铰链，各半宽
-              _doorSwing(canvas, hA, u, n, oPx, oPx / 2, side: 1);
-              _doorSwing(canvas, hB, -u, n, oPx, oPx / 2, side: 1);
-              _openLabel(canvas, (hA + hB) / 2 - n * (halfT + 12), o);
+              _doorSwing(canvas, hA, u, n, oPx, oPx / 2,
+                  side: swingSide, color: openColor);
+              _doorSwing(canvas, hB, -u, n, oPx, oPx / 2,
+                  side: swingSide, color: openColor);
+              _openLabel(canvas, (hA + hB) / 2 - n * (halfT + 12), o, color: openColor);
               break;
 
             case DoorType.sliding:
@@ -2675,7 +2747,7 @@ class _PlanPainter extends CustomPainter {
               final b2 = hB - u * (oPx * 0.45) - n * s;
               canvas.drawLine(a1, b1, paint);
               canvas.drawLine(a2, b2, paint);
-              _openLabel(canvas, (hA + hB) / 2 - n * (halfT + 12), o);
+              _openLabel(canvas, (hA + hB) / 2 - n * (halfT + 12), o, color: openColor);
               break;
           }
           break;
@@ -2684,6 +2756,7 @@ class _PlanPainter extends CustomPainter {
   }
 
   /// 门扇：[hinge] 铰链、[u] 墙方向、[n] 法向、[radius] 弧线半径（px）。
+  /// [side] ±1 = 门扇开向法向哪一侧（内开/外开）；[color] 选中时高亮色。
   void _doorSwing(
     Canvas canvas,
     Offset hinge,
@@ -2692,9 +2765,10 @@ class _PlanPainter extends CustomPainter {
     double _,
     double radius, {
     double side = 1,
+    Color color = JiajiaColors.opening,
   }) {
     final paint = Paint()
-      ..color = JiajiaColors.opening
+      ..color = color
       ..strokeWidth = 2
       ..style = PaintingStyle.stroke;
     // 门扇（开启 45°）：铰链 → 墙向+法向合成方向 * 半径
@@ -2738,12 +2812,12 @@ class _PlanPainter extends CustomPainter {
     }
   }
 
-  void _openLabel(Canvas canvas, Offset p, Opening o) {
+  void _openLabel(Canvas canvas, Offset p, Opening o, {Color? color}) {
     final tp = TextPainter(
       text: TextSpan(
         text: o.label,
-        style: const TextStyle(
-          color: JiajiaColors.opening,
+        style: TextStyle(
+          color: color ?? JiajiaColors.opening,
           fontSize: 9,
           height: 1.2,
         ),
@@ -2787,7 +2861,7 @@ class _PlanPainter extends CustomPainter {
       final w = fw * cam.ppm;
       final h = fd * cam.ppm;
       final selected = sel?.id == i.id;
-      final color = selected ? JiajiaColors.accent : JiajiaColors.furniture;
+      final color = selected ? JiajiaColors.sel : JiajiaColors.furniture;
       canvas.save();
       canvas.translate(p.dx, p.dy);
       canvas.rotate(i.rotationDeg * math.pi / 180);

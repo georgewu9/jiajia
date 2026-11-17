@@ -108,6 +108,7 @@ class Opening {
   double width;
   double sill; // 窗台高（door 为 0）
   double height; // 开洞高（门高 / 窗高，sill+height 为窗顶）
+  bool outSwing; // 外开门（false=内开，默认；仅单开/双开门有意义）
 
   Opening({
     required this.id,
@@ -117,6 +118,7 @@ class Opening {
     required this.width,
     this.sill = 0,
     this.doorType = DoorType.single,
+    this.outSwing = false,
     double? height,
   }) : height =
            height ??
@@ -128,7 +130,10 @@ class Opening {
       final s = toMm(sill);
       return s > 0 ? '窗 $w×$h(台$s)' : '窗 $w×$h';
     }
-    return '${doorType.label} $w×$h';
+    final swing = doorType == DoorType.single || doorType == DoorType.double
+        ? (outSwing ? '外开' : '内开')
+        : '';
+    return '${doorType.label} $w×$h$swing';
   }
 
   Map<String, dynamic> toJson() => {
@@ -140,6 +145,7 @@ class Opening {
     'w': width,
     'sill': sill,
     'ht': height,
+    'out': outSwing,
   };
 }
 
@@ -405,6 +411,7 @@ class FloorPlan {
         width: (o['w'] as num).toDouble(),
         sill: (o['sill'] as num?)?.toDouble() ?? 0,
         height: (o['ht'] as num?)?.toDouble(), // null → 按 kind/dt 默认
+        outSwing: o['out'] == true,
       );
       p._seq = p.maxSeq(p._seq, o['id'] as String, 'o');
     }

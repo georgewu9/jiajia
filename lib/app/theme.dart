@@ -21,7 +21,11 @@ class JiajiaColors {
   static const Color gridMinor = Color(0xFF1A202B);
   static const Color gridMajor = Color(0xFF232B38);
   static const Color wall = Color(0xFFE8E2D5);
-  static const Color wallSelected = accent;
+
+  /// 选中高亮：亮黄（v0.1.18）——与辉光 amber 区分开，选中一眼可见。
+  static const Color sel = Color(0xFFFFD60A);
+  static const Color selSoft = Color(0x33FFD60A);
+  static const Color wallSelected = sel;
   static const Color opening = Color(0xFF4A90D9);
   static const Color furniture = Color(0xFF8FD3A8);
 }

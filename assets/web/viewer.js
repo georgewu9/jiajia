@@ -164,7 +164,7 @@
           box.rotation.y = -ang;
           root.add(box);
         } else if (kind.kind === 'door') {
-          // 门洞：上方过梁 + 地板上的门扇弧线提示
+          // 门洞：上方过梁 + 门扇
           var lintel = new THREE.Mesh(
               new THREE.BoxGeometry(segLen, hh - 2.1, th),
               new THREE.MeshStandardMaterial({ color: 0x44506a }));
@@ -172,6 +172,33 @@
           lintel.position.y = 2.1 + (hh - 2.1) / 2;
           lintel.rotation.y = -ang;
           root.add(lintel);
+          // v0.1.18 门扇：单开整宽、双开两端各半宽；铰链在开洞端部，
+          // 90° 张开——内开朝法向内侧（side=1）、外开朝外侧（side=-1）
+          if (kind.dt === 'single' || kind.dt === 'double') {
+            var L = len;
+            var n2x = -dy / L, n2z = dx / L; // 法向（墙方向左侧）
+            var side = kind.out ? -1 : 1;
+            var lW = kind.dt === 'double' ? segLen / 2 : segLen;
+            var leafH = 2.05;
+            var leafAngle = -Math.atan2(n2z, n2x);
+            var leafMat = new THREE.MeshStandardMaterial({
+              color: 0xc98d4f, roughness: 0.6
+            });
+            var addLeaf = function (hx, hy, wl) {
+              var leaf = new THREE.Mesh(
+                  new THREE.BoxGeometry(wl, leafH, 0.04), leafMat);
+              leaf.rotation.y = leafAngle;
+              leaf.position.copy(w2v(
+                  hx + n2x * side * (th / 2 + wl / 2),
+                  hy + n2z * side * (th / 2 + wl / 2)));
+              leaf.position.y = leafH / 2;
+              root.add(leaf);
+            };
+            var p0x = ax + dx * t0, p0y = ay + dy * t0;
+            var p1x = ax + dx * t1, p1y = ay + dy * t1;
+            addLeaf(p0x, p0y, lW);
+            if (kind.dt === 'double') addLeaf(p1x, p1y, lW);
+          }
         } else if (kind.kind === 'window') {
           // 窗：窗台下实墙 + 玻璃
           var sill = kind.sill || 0.9;

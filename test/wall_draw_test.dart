@@ -93,4 +93,32 @@ void main() {
     expect(find.text('墙尺寸'), findsOneWidget,
         reason: '双击墙应弹出尺寸台底面板');
   });
+
+  testWidgets('v0.1.18 选择工具：偏墙 0.3m 的点也能选中墙（容差回归）',
+      (tester) async {
+    final (container, _) = await pumpEditor(tester);
+    final cv = find.byKey(const ValueKey('cv'));
+    await tester.drag(cv, const Offset(300, 0));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(container.read(editorDocProvider).plan.walls.length, 1);
+
+    final wall = container.read(editorDocProvider).plan.walls.values.first;
+    const ppm = 90.0, panX = 80.0, panY = 80.0; // 相机初始值（画墙不改相机）
+    // 取墙中点偏法向 0.3m 的世界坐标——旧容差（0.25~0.3m 封顶）点不中，
+    // v0.1.18 起（墙厚/2+0.45）必须选中。
+    final mid = wall.a + (wall.b - wall.a) * 0.5;
+    final off = mid + Vec2(0, 0.3);
+    final local = Offset(off.dx * ppm + panX, off.dy * ppm + panY);
+    final tapGlobal = tester.getRect(cv).topLeft + local;
+
+    await tester.tap(find.text('选择'));
+    await tester.pump();
+    await tester.tapAt(tapGlobal);
+    await tester.pump(const Duration(milliseconds: 400)); // 越过双击窗口
+    await tester.pump();
+
+    expect(find.text('加开洞'), findsOneWidget,
+        reason: '偏 0.3m 的点应命中墙并弹出墙面板');
+  });
 }

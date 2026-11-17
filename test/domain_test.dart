@@ -38,7 +38,31 @@ void main() {
       final o = p.openings['o1']!;
       expect(o.doorType, DoorType.single);
       expect(o.height, 2.0);
-      expect(o.label, '单开门 900×2000');
+      expect(o.label, '单开门 900×2000内开');
+    });
+
+    test('v0.1.18 JSON 往返保留 outSwing（外开）；旧 JSON 默认内开', () {
+      final p = FloorPlan();
+      p.walls['w1'] = Wall(id: 'w1', a: const Vec2(0, 0), b: const Vec2(3, 0));
+      p.openings['o1'] = Opening(
+        id: 'o1',
+        wallId: 'w1',
+        kind: OpeningKind.door,
+        doorType: DoorType.double,
+        offset: 1.0,
+        width: 1.8,
+        height: 2.1,
+        outSwing: true,
+      );
+      final restored = FloorPlan.fromJsonString(p.toJsonString());
+      final o = restored.openings['o1']!;
+      expect(o.outSwing, true);
+      expect(o.label, '双开门 1800×2100外开');
+
+      // 无 out 字段的旧 JSON → 内开
+      final legacy = FloorPlan.fromJsonString(p.toJsonString()
+          .replaceAll('"out":true', '"out":false'));
+      expect(legacy.openings['o1']!.outSwing, false);
     });
 
     test('门型默认值符合家易量习惯（mm）', () {
