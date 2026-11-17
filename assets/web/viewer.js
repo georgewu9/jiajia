@@ -81,6 +81,7 @@
   var moveVec = { x: 0, z: 0 }; // 摇杆
   var keys = {};
   var lastPlan = null;
+  var doorsDbg = [], windowsDbg = []; // 调试：门窗实体引用
 
   function post(msg) {
     if (window.dart && window.dart.postMessage) {
@@ -117,11 +118,14 @@
 
   function wallSegments(wall, plan) {
     // 与 Dart 侧一致：开洞分段 [(t0,t1,solid)]
+    // v0.1.18 修复：墙 JSON 只有 ax/ay/bx/by/t/h，没有 length 键——
+    // 旧代码 wall.length||1 把米数当比例，开洞全画到墙外错位（3D 门窗消失/位置乱）
+    var wdx = wall.bx - wall.ax, wdy = wall.by - wall.ay;
+    var wlen = Math.sqrt(wdx * wdx + wdy * wdy) || 1;
     var opens = plan.openings
         .filter(function (o) { return o.wall === wall.id; })
         .map(function (o) {
-          var len = wall.length || 1;
-          return [o.off / len, (o.off + o.w) / len, o];
+          return [o.off / wlen, (o.off + o.w) / wlen, o];
         })
         .sort(function (a, b) { return a[0] - b[0]; });
     var out = [];
@@ -164,14 +168,16 @@
           box.rotation.y = -ang;
           root.add(box);
         } else if (kind.kind === 'door') {
-          // 门洞：上方过梁 + 门扇
-          var lintel = new THREE.Mesh(
-              new THREE.BoxGeometry(segLen, hh - 2.1, th),
-              new THREE.MeshStandardMaterial({ color: 0x44506a }));
-          lintel.position.copy(w2v(mx, my));
-          lintel.position.y = 2.1 + (hh - 2.1) / 2;
-          lintel.rotation.y = -ang;
-          root.add(lintel);
+          // 门洞：上方过梁（墙高 >2.1m 才有）+ 门扇
+          if (hh > 2.15) {
+            var lintel = new THREE.Mesh(
+                new THREE.BoxGeometry(segLen, hh - 2.1, th),
+                new THREE.MeshStandardMaterial({ color: 0x44506a }));
+            lintel.position.copy(w2v(mx, my));
+            lintel.position.y = 2.1 + (hh - 2.1) / 2;
+            lintel.rotation.y = -ang;
+            root.add(lintel);
+          }
           // v0.1.18 门扇：单开整宽、双开两端各半宽；铰链在开洞端部，
           // 90° 张开——内开朝法向内侧（side=1）、外开朝外侧（side=-1）
           if (kind.dt === 'single' || kind.dt === 'double') {
@@ -193,6 +199,7 @@
                   hy + n2z * side * (th / 2 + wl / 2)));
               leaf.position.y = leafH / 2;
               root.add(leaf);
+              doorsDbg.push(leaf);
             };
             var p0x = ax + dx * t0, p0y = ay + dy * t0;
             var p1x = ax + dx * t1, p1y = ay + dy * t1;
@@ -220,6 +227,7 @@
           glass.position.y = sill + glassH / 2;
           glass.rotation.y = -ang;
           root.add(glass);
+          windowsDbg.push(glass);
         }
       });
     });
@@ -345,6 +353,7 @@
 
   function applyPlan(jsonStr) {
     clearRoot();
+    doorsDbg = []; windowsDbg = [];
     var plan = JSON.parse(jsonStr);
     lastPlan = plan;
     var b = boundsOf(plan);
@@ -374,6 +383,19 @@
 
   window.jiajia = {
     setPlan: applyPlan,
+    // 调试探针：返回门窗实体的世界坐标（自动化验证用，无 UI 影响）
+    debugOpenings: function () {
+      return {
+        doors: doorsDbg.map(function (d) {
+          return { x: +d.position.x.toFixed(3), y: +d.position.y.toFixed(3),
+            z: +d.position.z.toFixed(3), w: d.geometry.parameters.width };
+        }),
+        windows: windowsDbg.map(function (g) {
+          return { x: +g.position.x.toFixed(3), y: +g.position.y.toFixed(3),
+            z: +g.position.z.toFixed(3), w: g.geometry.parameters.width };
+        }),
+      };
+    },
     setMode: function (m) {
       mode = m;
       document.getElementById('joy').style.display =
