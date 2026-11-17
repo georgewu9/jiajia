@@ -33,7 +33,9 @@ class Vec2 {
 }
 
 extension _NumR on num {
-  double roundToFraction(double d) => (this / d).round() * d;
+  /// 四舍五入到 1/d 的精度（d=1000 → 毫米；旧实现写反成 1/d 的倍数，
+  /// 4.0m 会被取整成 0.0 → 户型保存全变 (0,0) 空图，已修）。
+  double roundToFraction(double d) => (this * d).round() / d;
 }
 
 /// 墙：从 a 到 b 的线段。thickness 米（默认 0.24 砖墙），height 米（默认 2.8）。

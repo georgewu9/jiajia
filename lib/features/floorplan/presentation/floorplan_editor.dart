@@ -76,6 +76,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   Vec2? _wallCur; // 画墙拖拽实时终点
   final _cam = CameraCtrl();
   bool _draggingItem = false;
+  bool _draggingWall = false; // 选中墙后单指按住该墙拖动 = 平移整面墙（非平移相机）
   Size _canvasSize = const Size(360, 480);
   final GlobalKey _paintKey = GlobalKey();
   Offset? _downLocal; // 最近一次手指按下位置（画墙起点用它，避开 scale slop 偏移）
@@ -137,7 +138,12 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
           IconButton(
             icon: const Icon(Icons.save, size: 20),
             tooltip: '保存',
-            onPressed: () => _save(context, plan),
+            onPressed: () => _showSaveDialog(context, plan),
+          ),
+          IconButton(
+            icon: const Icon(Icons.rotate_90_degrees_cw, size: 20),
+            tooltip: '旋转户型',
+            onPressed: _openRotateDialog,
           ),
           IconButton(
             icon: const Icon(
@@ -873,6 +879,174 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
 
   // ---------------- 新建 / 保存 ----------------
 
+  /// 户型中心（墙 bbox 中点；无墙时取画布中心对应的世界坐标）。
+  Vec2 _planCenter(FloorPlan p) {
+    if (p.walls.isEmpty) {
+      return _cam.toWorld(Offset(
+          _canvasSize.width / 2, _canvasSize.height / 2));
+    }
+    double minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+    for (final w in p.walls.values) {
+      minX = math.min(minX, w.a.x);
+      maxX = math.max(maxX, w.a.x);
+      minY = math.min(minY, w.a.y);
+      maxY = math.max(maxY, w.a.y);
+      minX = math.min(minX, w.b.x);
+      maxX = math.max(maxX, w.b.x);
+      minY = math.min(minY, w.b.y);
+      maxY = math.max(maxY, w.b.y);
+    }
+    return Vec2((minX + maxX) / 2, (minY + maxY) / 2);
+  }
+
+  /// 旋转整个户型 [deg] 度（绕户型中心刚性旋转）。
+  /// 墙上开洞的 offset 是「相对墙起点」的距离 → 刚性变换下不变，无需迁移。
+  void _applyRotate(double deg) {
+    if (deg == 0) return;
+    final notifier = ref.read(editorDocProvider.notifier);
+    notifier.mutate((p) {
+      final c = _planCenter(p);
+      final r = deg * math.pi / 180;
+      final cos = math.cos(r), sin = math.sin(r);
+      Vec2 rot(Vec2 v) => Vec2(
+            c.x + (v.x - c.x) * cos - (v.y - c.y) * sin,
+            c.y + (v.x - c.x) * sin + (v.y - c.y) * cos,
+          );
+      for (final w in p.walls.values.toList()) {
+        p.walls[w.id] = Wall(
+          id: w.id,
+          a: rot(w.a),
+          b: rot(w.b),
+          thickness: w.thickness,
+          height: w.height,
+        );
+      }
+      for (final i in p.items.values) {
+        i.pos = rot(i.pos);
+      }
+    });
+    _sel = null;
+    _cam.fit(_canvasSize, ref.read(editorDocProvider).plan);
+    setState(() {});
+    _toast('已旋转 $deg°');
+  }
+
+  void _openRotateDialog() {
+    final plan = ref.read(editorDocProvider).plan;
+    if (plan.walls.isEmpty) {
+      _toast('没有可旋转的墙');
+      return;
+    }
+    double angle = 0;
+    showDialog<void>(
+      context: context,
+      builder: (c) => StatefulBuilder(
+        builder: (c2, setS) => AlertDialog(
+          backgroundColor: JiajiaColors.surface,
+          title: const Text(
+            '旋转户型',
+            style: TextStyle(color: JiajiaColors.text1, fontSize: 16),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '当前 $angle°（绕户型中心）',
+                style: const TextStyle(color: JiajiaColors.text2, fontSize: 12),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  for (final d in const [90.0, 180.0, 270.0])
+                    ChoiceChip(
+                      label: Text('${d.round()}°'),
+                      selected: angle == d,
+                      onSelected: (_) => setS(() => angle = d),
+                      labelStyle: const TextStyle(fontSize: 12),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Slider(
+                value: angle,
+                min: 0,
+                max: 359,
+                divisions: 359,
+                label: '${angle.round()}°',
+                onChanged: (v) => setS(() => angle = v),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('取消',
+                  style: TextStyle(color: JiajiaColors.text2)),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(c);
+                _applyRotate(angle.round() % 360);
+              },
+              child: const Text(
+                '应用旋转',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 保存：先弹文件名输入框（可改名），再写 plans/<名称>.json。
+  void _showSaveDialog(BuildContext context, FloorPlan plan) {
+    final controller = TextEditingController(text: plan.name);
+    showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        backgroundColor: JiajiaColors.surface,
+        title: const Text(
+          '保存户型',
+          style: TextStyle(color: JiajiaColors.text1, fontSize: 16),
+        ),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 40,
+          style: const TextStyle(color: JiajiaColors.text1, fontSize: 14),
+          decoration: const InputDecoration(
+            labelText: '文件名',
+            helperText: '将存入本机「我的户型」',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child:
+                const Text('取消', style: TextStyle(color: JiajiaColors.text2)),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final name = PlanStore.sanitizeName(controller.text);
+              ref.read(editorDocProvider.notifier).mutate((p) {
+                p.name = name;
+              });
+              Navigator.pop(c);
+              await _save(c, ref.read(editorDocProvider).plan);
+            },
+            child: const Text(
+              '保存',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _newPlan(FloorPlan plan) {
     showDialog(
       context: context,
@@ -976,7 +1150,10 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
         setState(() {});
       case EditorTool.select:
         final hit = _hitTest(plan, world);
-        _draggingItem = hit != null && hit.id == _sel?.id && hit.type == 'item';
+        _draggingItem =
+            hit != null && hit.id == _sel?.id && hit.type == 'item';
+        // 按住「选中的墙」→ 平移该墙（含墙上门窗）；按住别处 → 平移相机
+        _draggingWall = hit != null && hit.type == 'wall' && hit.id == _sel?.id;
         break;
       default:
         break;
@@ -990,7 +1167,21 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
         _wallCur = _snapPoint(_cam.toWorld(local), plan, anchor: _wallStart);
         setState(() {});
       case EditorTool.select:
-        if (_draggingItem && _sel != null) {
+        if (_draggingWall && _sel != null) {
+          // 墙 a 端点是 final → 重建 Wall；墙上开洞按 wallId 跟随，无需迁移
+          ref.read(editorDocProvider.notifier).mutate((p2) {
+            final w = p2.walls[_sel!.id];
+            if (w == null) return;
+            final d = Vec2(delta.dx / _cam.ppm, delta.dy / _cam.ppm);
+            p2.walls[w.id] = Wall(
+              id: w.id,
+              a: w.a + d,
+              b: w.b + d,
+              thickness: w.thickness,
+              height: w.height,
+            );
+          }, record: false);
+        } else if (_draggingItem && _sel != null) {
           ref.read(editorDocProvider.notifier).mutate((p2) {
             final item = p2.items[_sel!.id];
             if (item == null) return;
@@ -1013,6 +1204,10 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       case EditorTool.wall:
         _commitWallDraft(plan);
       case EditorTool.select:
+        if (_draggingWall) {
+          ref.read(editorDocProvider.notifier).mutate((p2) {}, record: true);
+          _draggingWall = false;
+        }
         if (_draggingItem) {
           ref.read(editorDocProvider.notifier).mutate((p2) {}, record: true);
           _draggingItem = false;
@@ -1023,10 +1218,11 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   }
 
   void _panCancel() {
-    // 双指缩放抢走手势：取消画墙草稿 / 家具拖拽
+    // 双指缩放抢走手势：取消画墙草稿 / 家具拖拽 / 墙拖动
     _wallStart = _wallCur = null;
     _downLocal = null;
     _draggingItem = false;
+    _draggingWall = false;
     setState(() {});
   }
 
