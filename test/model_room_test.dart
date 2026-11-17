@@ -235,7 +235,7 @@ void main() {
       await tester.tapAt(tester.getCenter(cvF) + const Offset(-200, -160));
       await tester.pump(const Duration(milliseconds: 400)); // 越过双击窗口
       await tester.pump();
-      expect(find.textContaining('房间 ·'), findsOneWidget);
+      expect(find.textContaining('拖动可移动位置'), findsOneWidget);
 
       await tester.tap(find.text('拆房'));
       await tester.pump();

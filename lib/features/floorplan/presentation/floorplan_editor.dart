@@ -81,6 +81,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   bool _draggingItem = false;
   bool _draggingOpening = false; // 选中开洞后按住拖动 → 沿墙平移（改位置）
   bool _draggingWall = false; // 选中墙后单指按住该墙拖动 = 平移整面墙（非平移相机）
+  bool _draggingRoom = false; // v0.1.22：选中房间后从房间内拖动 = 移动整间房（非平移相机）
   Size _canvasSize = const Size(360, 480);
   final GlobalKey _paintKey = GlobalKey();
   Offset? _downLocal; // 最近一次手指按下位置（画墙起点用它，避开 scale slop 偏移）
@@ -1164,6 +1165,15 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
             hit != null && hit.id == _sel?.id && hit.type == 'opening';
         // 按住「选中的墙」→ 平移该墙（含墙上门窗）；按住别处 → 平移相机
         _draggingWall = hit != null && hit.type == 'wall' && hit.id == _sel?.id;
+        // v0.1.22：选中房间 + 点在房间内 + 没命中墙/门/家具 → 拖整间房
+        _draggingRoom = hit == null && _sel?.type == 'room' &&
+            (() {
+              final idx = int.tryParse(_sel!.id.replaceFirst('room:', ''));
+              if (idx == null) return false;
+              final rooms = _roomsOf(plan);
+              if (idx >= rooms.length) return false;
+              return plan.roomContains(rooms[idx], world);
+            })();
         break;
       default:
         break;
@@ -1213,6 +1223,25 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
             item.pos =
                 item.pos + Vec2(delta.dx / _cam.ppm, delta.dy / _cam.ppm);
           }, record: false);
+        } else if (_draggingRoom && _sel != null && _sel!.type == 'room') {
+          // v0.1.22：移动整间房 — 偏移该房间所有墙端点
+          final idx = int.tryParse(_sel!.id.replaceFirst('room:', ''));
+          if (idx != null) {
+            ref.read(editorDocProvider.notifier).mutate((p2) {
+              final rooms = p2.roomLoops();
+              if (idx >= rooms.length) return;
+              final d = Vec2(delta.dx / _cam.ppm, delta.dy / _cam.ppm);
+              for (final w in rooms[idx].walls) {
+                p2.walls[w.id] = Wall(
+                  id: w.id,
+                  a: w.a + d,
+                  b: w.b + d,
+                  thickness: w.thickness,
+                  height: w.height,
+                );
+              }
+            }, record: false);
+          }
         } else {
           _cam.panBy(delta);
           setState(() {});
@@ -1241,18 +1270,23 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
           ref.read(editorDocProvider.notifier).mutate((p2) {}, record: true);
           _draggingOpening = false;
         }
+        if (_draggingRoom) {
+          ref.read(editorDocProvider.notifier).mutate((p2) {}, record: true);
+          _draggingRoom = false;
+        }
       default:
         break;
     }
   }
 
   void _panCancel() {
-    // 双指缩放抢走手势：取消画墙草稿 / 家具拖拽 / 墙拖动
+    // 双指缩放抢走手势：取消画墙草稿 / 家具拖拽 / 墙拖动 / 房间拖动
     _wallStart = _wallCur = null;
     _downLocal = null;
     _draggingItem = false;
     _draggingOpening = false;
     _draggingWall = false;
+    _draggingRoom = false;
     setState(() {});
   }
 
@@ -1824,7 +1858,7 @@ class _RoomActionBar extends ConsumerWidget {
             children: [
               Expanded(
                 child: Text(
-                  '房间 · ${m2.toStringAsFixed(1)}㎡（${loop.walls.length} 面墙）',
+                  '房间 ${m2.toStringAsFixed(1)}㎡ · 拖动可移动位置',
                   style: const TextStyle(
                     fontSize: 11,
                     color: JiajiaColors.text2,

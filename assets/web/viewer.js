@@ -306,6 +306,46 @@
     return outer;
   }
 
+  // v0.1.22：程序化楼梯（stair/stairL/stairR 无 OBJ 模型时回退，不再是方盒子）
+  // stepH=总高/步数，run1=直段步数，turn=转折（L 型有 90° 拐弯），run2=拐弯后步数
+  function buildStairs(kind, w, d, h, color, x, y, rotDeg) {
+    var group = new THREE.Group();
+    var mat = new THREE.MeshStandardMaterial({ color: color });
+    var isL = (kind === 'stairL' || kind === 'stairR');
+    var total = isL ? 8 : 10;
+    var run1 = isL ? 4 : total;
+    var run2 = isL ? total - run1 : 0;
+    var stepH = h / total;
+    var treadD = d / (run1 + 1); // 直段每级踏深
+    var treadW = w;
+    // 直段台阶
+    for (var s = 0; s < run1; s++) {
+      var tread = new THREE.Mesh(
+          new THREE.BoxGeometry(treadW, stepH, treadD), mat);
+      tread.position.set(0, stepH * (s + 0.5),
+          -d / 2 + treadD * (s + 0.5));
+      group.add(tread);
+    }
+    // L 型拐弯段：从直段末端 90° 转，横向铺台阶
+    if (run2 > 0) {
+      var baseY = stepH * run1;
+      var turnDir = (kind === 'stairR') ? 1 : -1;
+      var segW = w / (run2 + 1);
+      for (var s2 = 0; s2 < run2; s2++) {
+        var t2 = new THREE.Mesh(
+            new THREE.BoxGeometry(segW, stepH, treadD), mat);
+        t2.position.set(
+            turnDir * (w / 2 - segW * (s2 + 0.5)),
+            baseY + stepH * (s2 + 0.5),
+            d / 2 - treadD / 2);
+        group.add(t2);
+      }
+    }
+    group.position.set(x, 0, y);
+    group.rotation.y = -((rotDeg || 0) * Math.PI / 180);
+    return group;
+  }
+
   function buildItems(plan) {
     plan.items.forEach(function (i) {
       // v0.1.20：自定义尺寸（米）→ 目录盒/模型等比缩放
@@ -337,6 +377,14 @@
       var bw = sw != null ? sw : spec[0];
       var bd = sd != null ? sd : spec[1];
       var bh = sh != null ? sh : spec[2];
+      // v0.1.22：楼梯类 kind → 程序化台阶（替代方盒子）
+      if (i.kind === 'stair' || i.kind === 'stairL' || i.kind === 'stairR') {
+        var stairs = buildStairs(i.kind, bw, bd, bh, spec[3],
+            i.x, i.y, i.rot || 0);
+        stairs.userData = { id: i.id, kind: i.kind };
+        root.add(stairs);
+        return;
+      }
       var box = new THREE.Mesh(
           new THREE.BoxGeometry(bw, bh, bd),
           new THREE.MeshStandardMaterial({ color: spec[3] }));
