@@ -122,6 +122,17 @@ class ModelItems {
       heightMm: 2000,
       noLeaf: true,
     ),
+    ModelSpec(
+      id: 'yimen_huadong',
+      category: '门',
+      label: '移门',
+      icon: 'assets/models2d/icon_yimen_huadong.png',
+      place: ModelPlace.wall,
+      kind: OpeningKind.door,
+      doorType: DoorType.sliding,
+      defaultWmm: 1200,
+      heightMm: 2000,
+    ),
     // ---------- 窗 ----------
     ModelSpec(
       id: 'luodichuang',
