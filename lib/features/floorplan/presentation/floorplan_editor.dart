@@ -1785,8 +1785,10 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       }
     }
     if (bestOpen != null) return bestOpen;
-    final walls = _hitWall(plan, w);
-    if (walls != null) return walls;
+    // 【命中顺序：开洞 → 物品 → 墙】物品贴墙摆放（靠墙圆柱/包管等）时，物品
+    // 中心到墙中线的距离往往小于墙命中容差（墙厚/2 + 0.45m），若先判墙则点物品
+    // 永远先命中墙 → 物品选不中、拖不动、双击改不了尺寸。故物品命中必须优先于墙。
+    // 物品只在自身 footprint ±0.18m 内命中，不影响离物品稍远处选墙。
     for (final i in plan.items.values) {
       final (fw, fd) = i.footprint;
       final c = math.cos(i.rotationDeg * math.pi / 180);
@@ -1799,6 +1801,8 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
         return _Sel(i.id, 'item');
       }
     }
+    final walls = _hitWall(plan, w);
+    if (walls != null) return walls;
     return null;
   }
 }
@@ -3477,18 +3481,38 @@ class _PlanPainter extends CustomPainter {
       canvas.save();
       canvas.translate(p.dx, p.dy);
       canvas.rotate(i.rotationDeg * math.pi / 180);
-      final rRect = RRect.fromRectAndRadius(
-        Rect.fromCenter(center: Offset.zero, width: w, height: h),
-        const Radius.circular(4),
-      );
-      canvas.drawRRect(rRect, Paint()..color = color.withValues(alpha: 0.25));
-      canvas.drawRRect(
-        rRect,
-        Paint()
-          ..color = color
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = selected ? 2.5 : 1.5,
-      );
+      // 圆柱/裸管是回转体，2D 平面图上要画成圆形（画方框会误导施工定位）。
+      final isRound = i.kind == FurnitureKind.roundPillar ||
+          i.kind == FurnitureKind.barePipe;
+      if (isRound) {
+        final r = math.min(w, h) / 2;
+        canvas.drawCircle(
+          Offset.zero,
+          r,
+          Paint()..color = color.withValues(alpha: 0.25),
+        );
+        canvas.drawCircle(
+          Offset.zero,
+          r,
+          Paint()
+            ..color = color
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = selected ? 2.5 : 1.5,
+        );
+      } else {
+        final rRect = RRect.fromRectAndRadius(
+          Rect.fromCenter(center: Offset.zero, width: w, height: h),
+          const Radius.circular(4),
+        );
+        canvas.drawRRect(rRect, Paint()..color = color.withValues(alpha: 0.25));
+        canvas.drawRRect(
+          rRect,
+          Paint()
+            ..color = color
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = selected ? 2.5 : 1.5,
+        );
+      }
       final label = i.modelId == null
           ? FurnitureCatalog.labelOf(i.kind)
           : (ModelAssets.byId(i.modelId!)?.label ??

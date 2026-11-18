@@ -413,6 +413,18 @@
     return group;
   }
 
+  // 圆柱/裸管：3D 用回转体（CylinderGeometry, 24 段）而非方盒子——
+  // 与 2D 平面图上的圆形符号保持一致，靠墙包管不会看起来是方柱。
+  function buildCylinder(w, d, h, color, x, y, rotDeg) {
+    var r = Math.min(w, d) / 2;
+    var cyl = new THREE.Mesh(
+        new THREE.CylinderGeometry(r, r, h, 24),
+        new THREE.MeshStandardMaterial({ color: color }));
+    cyl.position.set(x, h / 2, y);
+    cyl.rotation.y = -((rotDeg || 0) * Math.PI / 180);
+    return cyl;
+  }
+
   function buildItems(plan) {
     plan.items.forEach(function (i) {
       // v0.1.20：自定义尺寸（米）→ 目录盒/模型等比缩放
@@ -460,6 +472,13 @@
             i.x, i.y, i.rot || 0, i.el);
         stairs.userData = { id: i.id, kind: i.kind };
         root.add(stairs);
+        return;
+      }
+      // 圆柱/包管/裸管 → 圆柱体（回转体），不吃下面的方盒子分支
+      if (i.kind === 'roundPillar' || i.kind === 'barePipe') {
+        var cyl = buildCylinder(bw, bd, bh, spec[3], i.x, i.y, i.rot || 0);
+        cyl.userData = { id: i.id, kind: i.kind };
+        root.add(cyl);
         return;
       }
       var box = new THREE.Mesh(
