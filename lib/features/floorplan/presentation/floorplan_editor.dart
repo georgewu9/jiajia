@@ -1252,7 +1252,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
           if (idx != null) {
             ref.read(editorDocProvider.notifier).mutate((p2) {
               final rooms = p2.roomLoops();
-              if (idx >= rooms.length) return;
+              if (idx < 0 || idx >= rooms.length) return;
               final d = Vec2(delta.dx / _cam.ppm, delta.dy / _cam.ppm);
               for (final w in rooms[idx].walls) {
                 p2.walls[w.id] = Wall(
@@ -1285,6 +1285,9 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
         // _setTool 会清 _sel，需再 setState 回设新墙选中（沿用放置模型的既有做法）
         setState(() => _sel = _Sel(newWallId, 'wall'));
       }
+      // 画墙会改变房间环（围合/拆开/删段）：切回选择后校验 _sel 是否仍有效，
+      // 房间已不存在时必须清掉，否则 _RoomActionBar 用旧 room 索引会越界崩。
+      _clearSelIfInvalid();
       return;
     }
     switch (_tool) {
@@ -1368,7 +1371,9 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
             _mergeFrom = null;
           } else {
             final rooms2 = _roomsOf(plan);
-            if (_mergeFrom != null && _mergeFrom! < rooms2.length) {
+            if (_mergeFrom != null &&
+                _mergeFrom! >= 0 &&
+                _mergeFrom! < rooms2.length) {
               _tryMerge(rooms2[_mergeFrom!], rooms2[idx]);
               _mergeFrom = null;
               setState(() => _sel = null);
@@ -1504,6 +1509,38 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     return n;
   }
 
+  /// 选中态是否仍指向 plan 中存在的对象；房间索引失效（拆房/删墙后房间没了）
+  /// 即清空 _sel —— 底栏操作条按索引取房间，留着旧索引会 RangeError。
+  void _clearSelIfInvalid() {
+    final sel = _sel;
+    if (sel == null) return;
+    final plan = ref.read(editorDocProvider).plan;
+    bool valid;
+    switch (sel.type) {
+      case 'room':
+        final idx = int.tryParse(sel.id.replaceFirst('room:', ''));
+        valid = idx != null && idx >= 0 && idx < plan.roomLoops().length;
+        break;
+      case 'wall':
+        valid = plan.walls.containsKey(sel.id);
+        break;
+      case 'opening':
+        valid = plan.openings.containsKey(sel.id);
+        break;
+      case 'item':
+        valid = plan.items.containsKey(sel.id);
+        break;
+      default:
+        valid = false;
+    }
+    if (!valid) {
+      setState(() {
+        _sel = null;
+        _mergeFrom = null;
+      });
+    }
+  }
+
   /// 点「合并」后：记录来源房间，等用户点相邻房间。
   void _armMerge(int idx) {
     _mergeFrom = idx;
@@ -1565,7 +1602,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   void _removeRoom(int roomIdx) {
     final plan = ref.read(editorDocProvider).plan;
     final rooms = plan.roomLoops();
-    if (roomIdx >= rooms.length) {
+    if (roomIdx < 0 || roomIdx >= rooms.length) {
       _toast('房间已变化，请重新点选');
       _sel = null;
       return;
@@ -1880,8 +1917,12 @@ class _RoomActionBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final plan = ref.read(editorDocProvider).plan;
-    final loop = ref.read(editorDocProvider).plan.roomLoops()[
-        roomIdx < _roomsCount(ref, plan) ? roomIdx : 0];
+    // 防崩：plan 没有房间时 roomLoops() 为空，旧代码回退到 [0] 直接 RangeError。
+    // 场景：拆房/删墙后 _sel 仍指向 room，或新建户型房间尚未识别。
+    final rooms = plan.roomLoops();
+    if (rooms.isEmpty) return const SizedBox.shrink();
+    final idx = (roomIdx >= 0 && roomIdx < rooms.length) ? roomIdx : 0;
+    final loop = rooms[idx];
     final m2 = (loop.area * 100).roundToDouble() / 100;
     return Container(
       color: JiajiaColors.raised,
@@ -1909,8 +1950,6 @@ class _RoomActionBar extends ConsumerWidget {
       ),
     );
   }
-
-  int _roomsCount(WidgetRef ref, FloorPlan p) => p.roomLoops().length;
 
   Widget _act(String label, IconData icon, VoidCallback cb) => Padding(
         padding: const EdgeInsets.only(left: 4),
@@ -1941,9 +1980,8 @@ class _SplitDialogState extends ConsumerState<_SplitDialog> {
   Widget build(BuildContext context) {
     final plan = ref.read(editorDocProvider).plan;
     final idx = widget.roomIdx;
-    final loop = idx < plan.roomLoops().length
-        ? plan.roomLoops()[idx]
-        : null;
+    final rooms = plan.roomLoops();
+    final loop = (idx >= 0 && idx < rooms.length) ? rooms[idx] : null;
     final messenger = ScaffoldMessenger.maybeOf(context);
     return DraggableScrollableSheet(
       expand: false,
@@ -2921,7 +2959,7 @@ class _PlanPainter extends CustomPainter {
   /// 选中房间：外轮廓高亮（accent 描边 + 半透明填充）。
   void _paintSelRoom(Canvas canvas) {
     final i = int.tryParse(sel!.id.replaceFirst('room:', ''));
-    if (i == null || i >= rooms.length) return;
+    if (i == null || i < 0 || i >= rooms.length) return;
     final nodes = plan.orderedNodes(rooms[i]);
     if (nodes.length < 3) return;
     final path = Path();

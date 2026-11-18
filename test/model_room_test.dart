@@ -112,8 +112,8 @@ void main() {
     test('目录齐 + 31 件（v0.1.17 新增 平台/弧形墙/弧形窗）', () {
       expect(ModelItems.categories,
           ['门', '窗', '柱', '楼梯', '台面/五金', '特殊墙窗']);
-      expect(ModelItems.all.length, 31);
-      expect(ModelItems.ofCategory('门').length, 5);
+      expect(ModelItems.all.length, 32);
+      expect(ModelItems.ofCategory('门').length, 6);
       expect(ModelItems.ofCategory('窗').length, 6);
       expect(ModelItems.ofCategory('柱').length, 2);
       expect(ModelItems.ofCategory('楼梯').length, 4);
@@ -142,7 +142,7 @@ void main() {
       await tester.tap(find.text('门'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text('门 · 素材（5 件）'), findsOneWidget);
+      expect(find.text('门 · 素材（6 件）'), findsOneWidget);
       expect(find.text('门洞'), findsOneWidget);
       // 返回一级 → 楼梯（含平台）
       await tester.tap(find.text('← 模块'));
