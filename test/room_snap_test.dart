@@ -80,6 +80,11 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       expect(container.read(editorDocProvider).plan.walls.length, 1);
 
+      // 画完一面墙后编辑器自动回「选择」工具（防误操作），
+      // 画第二面墙前需手动切回「画墙」。
+      await tester.tap(find.text('画墙'));
+      await tester.pump();
+
       // 第二面墙：同一中心（= 第一面墙起点附近 <14px）向下拖 270px
       await tester.drag(cv, const Offset(0, 270));
       await tester.pump();

@@ -90,6 +90,9 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   List<RoomLoop> _rooms = const [];
   ModelSpec? _pendingModel; // 「模型」面板选中的待放置项（门/窗贴墙，柱/楼梯/台面摆地）
   int? _mergeFrom; // 合并房：待合并的房间下标（点相邻房间完成）
+  // 「建房」面板是否正在显示：独立于 _tool 的高亮状态，
+  // 避免「建房」与「画墙」共用 EditorTool.wall 导致两个按钮同时点亮。
+  bool _roomSheetOpen = false;
 
   @override
   void initState() {
@@ -364,26 +367,33 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                   children: [
                     // v0.1.17：底栏只留 4 个主入口，选择常驻最左（防误操作），
                     // 开洞/家具/素材/模型/删除 并入「模块」二级菜单。
+                    // Bug 修复：「建房」与「画墙」高亮必须互不影响。
+                    // 旧代码两个 chip 都用 EditorTool.wall 做高亮条件 → 按一个两个都亮。
+                    // 现在每个 chip 用各自独立的判定：
+                    //   · 选择/画墙/模块 → 看 _tool（建房面板打开时让位给「建房」）
+                    //   · 建房 → 看 _roomSheetOpen（面板打开期间高亮）
                     _toolChip(
                       '选择',
-                      EditorTool.select,
                       Icons.touch_app,
+                      _tool == EditorTool.select && !_roomSheetOpen,
                       () => _setTool(EditorTool.select),
                     ),
                     _toolChip(
                       '画墙',
-                      EditorTool.wall,
                       Icons.draw,
+                      _tool == EditorTool.wall && !_roomSheetOpen,
                       () => _setTool(EditorTool.wall),
                     ),
-                    _toolChip('建房', EditorTool.wall, Icons.room, () {
-                      _setTool(EditorTool.select);
-                      _openRoomDialog();
-                    }),
+                    _toolChip(
+                      '建房',
+                      Icons.room,
+                      _roomSheetOpen,
+                      _openRoomDialog,
+                    ),
                     _toolChip(
                       '模块',
-                      EditorTool.furniture,
                       Icons.category,
+                      _tool == EditorTool.furniture && !_roomSheetOpen,
                       _openModuleSheet,
                     ),
                     const SizedBox(width: 8),
@@ -449,13 +459,14 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     );
   }
 
+  /// 底栏工具 chip：[active] 由调用方独立判定（不再共用 EditorTool 比较），
+  /// 避免「建房」与「画墙」互相点亮。
   Widget _toolChip(
     String label,
-    EditorTool t,
     IconData icon,
+    bool active,
     VoidCallback onTap,
   ) {
-    final active = _tool == t;
     return Padding(
       padding: const EdgeInsets.only(right: 6),
       child: ActionChip(
@@ -503,13 +514,25 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   }
 
   /// 一键建房间：弹尺寸面板 → 在视口中央生成 4 面墙围合矩形（+门）→ 相机 fit。
+  /// 面板打开期间「建房」按钮独立高亮（_roomSheetOpen），完成后自动回「选择」。
   void _openRoomDialog() {
+    // 「建房」的高亮独立于 _tool：打开面板时只点亮「建房」，
+    // 不再让「画墙」跟着一起亮（用户报的按钮串亮 bug）。
+    setState(() => _roomSheetOpen = true);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: JiajiaColors.surface,
-      builder: (_) => _RoomDialog(cam: _cam, canvasSize: _canvasSize),
-    );
+      builder: (_) => _RoomDialog(
+        cam: _cam,
+        canvasSize: _canvasSize,
+        // 建房完成 → 自动回「选择」，用户不用手动切回
+        onCreated: () => _setTool(EditorTool.select),
+      ),
+    ).then((_) {
+      if (!mounted) return;
+      setState(() => _roomSheetOpen = false);
+    });
   }
 
 
@@ -1254,9 +1277,17 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
 
   void _panEnd(FloorPlan plan) {
     _downLocal = null;
+    if (_tool == EditorTool.wall) {
+      // 画墙结束 → 自动回「选择」工具（防误操作连画），新墙仍保持选中
+      final newWallId = _commitWallDraft(plan);
+      if (newWallId != null) {
+        _setTool(EditorTool.select);
+        // _setTool 会清 _sel，需再 setState 回设新墙选中（沿用放置模型的既有做法）
+        setState(() => _sel = _Sel(newWallId, 'wall'));
+      }
+      return;
+    }
     switch (_tool) {
-      case EditorTool.wall:
-        _commitWallDraft(plan);
       case EditorTool.select:
         if (_draggingWall) {
           ref.read(editorDocProvider.notifier).mutate((p2) {}, record: true);
@@ -1290,17 +1321,20 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     setState(() {});
   }
 
-  void _commitWallDraft(FloorPlan plan) {
+  /// 提交画墙草稿。返回新墙 id（未成墙——起点终点太近——返回 null）。
+  /// 选中态由调用方设置（切工具会清 _sel，故需在切工具之后再回设）。
+  String? _commitWallDraft(FloorPlan plan) {
     final s = _wallStart, c = _wallCur;
     _wallStart = _wallCur = null;
-    if (s == null || c == null || s.distanceTo(c) < 0.05) return;
+    if (s == null || c == null || s.distanceTo(c) < 0.05) return null;
     HapticFeedback.lightImpact();
+    String? newId;
     ref.read(editorDocProvider.notifier).mutate((p) {
       final id = p.newId('w');
+      newId = id;
       p.walls[id] = Wall(id: id, a: s, b: c);
-      _sel = _Sel(id, 'wall');
     });
-    setState(() {});
+    return newId;
   }
 
   // ---------------- 点击 / 双击 ----------------
@@ -3328,7 +3362,12 @@ class _PlanPainter extends CustomPainter {
 class _RoomDialog extends ConsumerStatefulWidget {
   final CameraCtrl cam;
   final Size canvasSize;
-  const _RoomDialog({required this.cam, required this.canvasSize});
+  final VoidCallback? onCreated; // 建房完成回调（父级据此切回「选择」工具）
+  const _RoomDialog({
+    required this.cam,
+    required this.canvasSize,
+    this.onCreated,
+  });
 
   @override
   ConsumerState<_RoomDialog> createState() => _RoomDialogState();
@@ -3403,6 +3442,9 @@ class _RoomDialogState extends ConsumerState<_RoomDialog> {
     widget.cam.fit(widget.canvasSize, after);
     final messenger = ScaffoldMessenger.maybeOf(context);
     final note = '已建房间 $lMm×$wMm mm${_withDoor ? '（含门）' : ''}，相机已适配';
+    // 建房完成 → 通知父级切回「选择」工具（防误操作，用户不用手动切回）
+    // 在 pop 之前回调：父级 setState 先落地，再让面板收起
+    widget.onCreated?.call();
     Navigator.pop(context);
     messenger?.showSnackBar(SnackBar(content: Text(note)));
   }
