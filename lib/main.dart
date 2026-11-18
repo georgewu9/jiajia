@@ -85,55 +85,62 @@ class _ErrorRootState extends State<ErrorRoot> {
   Widget build(BuildContext context) {
     // 整个根包 Directionality：这里在 MaterialApp 之外（Directionality
     // 只由 MaterialApp 内部安装），缺了它 Stack/Icon/Text 全崩 → 白屏。
-    return Directionality(
-      textDirection: TextDirection.ltr,
-      child: Stack(
-        children: [
-          widget.child,
-          ValueListenableBuilder<String?>(
-            valueListenable: widget.panel,
-            builder: (context, text, _) {
-              if (text == null) return const SizedBox.shrink();
-              return _DiagnosticScreen(
-                title: '⚠ 运行异常 / 启动记录（截图发我即可定位）',
-                content: text,
-                onClose: () => widget.panel.value = null,
-              );
-            },
-          ),
-          // 诊断按钮：根级，即使下层界面全坏也能点
-          Positioned(
-            right: 12,
-            bottom: 88,
-            child: GestureDetector(
-              onTap: () => setState(() => _showDiag = !_showDiag),
-              child: Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: JiajiaColors.raised,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: JiajiaColors.accent),
-                  boxShadow: const [
-                    BoxShadow(color: Colors.black54, blurRadius: 8),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.bug_report,
-                  size: 20,
-                  color: JiajiaColors.accent,
-                ),
+    final stack = Stack(
+      children: [
+        widget.child,
+        ValueListenableBuilder<String?>(
+          valueListenable: widget.panel,
+          builder: (context, text, _) {
+            if (text == null) return const SizedBox.shrink();
+            return _DiagnosticScreen(
+              title: '⚠ 运行异常 / 启动记录（截图发我即可定位）',
+              content: text,
+              onClose: () => widget.panel.value = null,
+            );
+          },
+        ),
+        // 诊断按钮：根级，即使下层界面全坏也能点
+        Positioned(
+          right: 12,
+          bottom: 88,
+          child: GestureDetector(
+            onTap: () => setState(() => _showDiag = !_showDiag),
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: JiajiaColors.raised,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: JiajiaColors.accent),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black54, blurRadius: 8),
+                ],
+              ),
+              child: const Icon(
+                Icons.bug_report,
+                size: 20,
+                color: JiajiaColors.accent,
               ),
             ),
           ),
-          if (_showDiag)
-            _DiagnosticScreen(
-              title: '启动诊断（长按文本可复制；截图发我）',
-              content: bootLog.panelText(liveError: widget.panel.value),
-              onClose: () => setState(() => _showDiag = false),
-            ),
-        ],
-      ),
+        ),
+        if (_showDiag)
+          _DiagnosticScreen(
+            title: '启动诊断（长按文本可复制；截图发我）',
+            content: bootLog.panelText(liveError: widget.panel.value),
+            onClose: () => setState(() => _showDiag = false),
+          ),
+      ],
     );
+    // 本树同样在 WidgetsApp 之外：RootWidget 只装 View，没有 MediaQuery，
+    // 而 SafeArea / MediaQuery.paddingOf 在 debug 下 assert、release 下空指针。
+    // 这里按当前 FlutterView 自己补一层，诊断屏的 SafeArea 才能取到系统
+    // 导航栏/手势条高度（关闭按钮据此抬高）。MaterialApp 内部会再装自己的
+    // MediaQuery，内层优先，不冲突。
+    final view = View.maybeOf(context);
+    final body = (view == null || MediaQuery.maybeOf(context) != null)
+        ? stack
+        : MediaQuery(data: MediaQueryData.fromView(view), child: stack);
+    return Directionality(textDirection: TextDirection.ltr, child: body);
   }
 }
 
@@ -151,45 +158,134 @@ class _DiagnosticScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Positioned.fill(
-      child: Container(
-        color: const Color(0xF2141821),
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                color: JiajiaColors.accent,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: SingleChildScrollView(
-                child: SelectableText(
-                  content,
-                  style: const TextStyle(
-                    color: JiajiaColors.text1,
-                    fontSize: 11,
-                    height: 1.5,
+      // 诊断屏在 MaterialApp 之外，整棵树没有 Overlay；而 SelectableText 的
+      // 长按选择手柄/复制菜单走 TextSelectionOverlay，必须有 Overlay 祖先，
+      // 否则长按立刻抛 "No Overlay widget found"（旧版长按即崩，复制用不了）。
+      // 自带一个最小 Overlay 把「长按复制」真正修好；key 跟着正文变 →
+      // 内容更新时重建 entry（Overlay 只在 initState 读一次 initialEntries）。
+      //
+      // 复制菜单（AdaptiveTextSelectionToolbar）还要求 MaterialLocalizations，
+      // 根树同样没有 → 用 Flutter 自带的 Default*Localizations（菜单标签英文，
+      // 面板正文仍是中文；要中文菜单需引入 flutter_localizations，暂不加重依赖）。
+      child: Localizations(
+        locale: const Locale('en'),
+        delegates: const [
+          DefaultMaterialLocalizations.delegate,
+          DefaultWidgetsLocalizations.delegate,
+        ],
+        child: Overlay(
+          key: ValueKey('diag_${title.hashCode}_${content.hashCode}'),
+          initialEntries: [OverlayEntry(builder: (_) => _body())],
+        ),
+      ),
+    );
+  }
+
+  Widget _body() {
+    return Material(
+      color: const Color(0xF2141821),
+      // 关键修复（v0.1.23）：「关闭」点不到 —— 旧版只有 padding:16，整屏
+      // 没有 SafeArea，右下角按钮落在 Android 手势条/三键导航栏区域里，
+      // 触摸被系统吃掉。这里四边都套 SafeArea，按钮自然抬到导航栏之上。
+      child: SafeArea(
+        // 兜底退出路径：点空白处（非 SelectableText 区域）也关闭。
+        // behavior:opaque 让整片 padding 都可命中；文本自身的手势识别器在
+        // 更深的层级，长按选择/滚动照旧，不会被这层抢走。
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onClose,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          color: JiajiaColors.accent,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    // 右上角 ✕：比大按钮更顺手的第二退出路径（热区 48×48）。
+                    // 注意：不能加 tooltip —— tooltip 需要 Overlay 祖先，而本屏
+                    // 在 MaterialApp 之外（无 Overlay/Navigator），会直接抛
+                    // "No Overlay widget found" 把诊断页自己搞崩。
+                    IconButton(
+                      key: const ValueKey('diag_close_x'),
+                      iconSize: 22,
+                      visualDensity: VisualDensity.compact,
+                      onPressed: onClose,
+                      icon: const Icon(
+                        Icons.close,
+                        color: JiajiaColors.accent,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Expanded(
+                  // 长按复制/截图发我：能力保持不变，只是不再被 SafeArea 挤掉。
+                  child: SingleChildScrollView(
+                    child: SelectableText(
+                      content,
+                      style: const TextStyle(
+                        color: JiajiaColors.text1,
+                        fontSize: 11,
+                        height: 1.5,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: onClose,
-                child: const Text(
-                  '关闭',
-                  style: TextStyle(color: JiajiaColors.accent),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        '点空白处或右上角 ✕ 也可关闭',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: JiajiaColors.text3,
+                        ),
+                      ),
+                    ),
+                    // 主退出按钮：旧版是 ~36 高的小 TextButton，还压在导航栏里。
+                    // 改成 accent 实心 FilledButton + 52 高 + 28 左右内边距，
+                    // 热区够大、颜色醒目，单手拇指也能点中。
+                    FilledButton.icon(
+                      key: const ValueKey('diag_close_btn'),
+                      onPressed: onClose,
+                      icon: const Icon(Icons.close, size: 18),
+                      label: const Text(
+                        '关闭',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: JiajiaColors.accent,
+                        foregroundColor: const Color(0xFF141821),
+                        minimumSize: const Size(148, 52),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 28,
+                          vertical: 14,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );

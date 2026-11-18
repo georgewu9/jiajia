@@ -319,7 +319,8 @@ class FurnitureCatalog {
       FurnitureKind.landing: '平台',
       FurnitureKind.arcWall: '弧形墙',
     };
-    return names[k]!;
+    // 防崩：新加的 kind 若漏补 label（names 缺键），`!` 会空指针崩画布。
+    return names[k] ?? k.name;
   }
 }
 
@@ -444,9 +445,20 @@ class FloorPlan {
     }
     for (final i
         in (j['items'] as List<dynamic>).cast<Map<String, dynamic>>()) {
+      // 防崩：旧版本写过、当前 enum 已删掉的 kind，`firstWhere` 没有 orElse
+      // 会抛 StateError → 整份户型打不开（且每次打开都崩 → 启动就弹日志页）。
+      // 未知件跳过，不让一条脏数据毁掉整份户型。
+      FurnitureKind? kind;
+      for (final k in FurnitureKind.values) {
+        if (k.name == i['kind']) {
+          kind = k;
+          break;
+        }
+      }
+      if (kind == null) continue;
       p.items[i['id'] as String] = FurnitureItem(
         id: i['id'] as String,
-        kind: FurnitureKind.values.firstWhere((k) => k.name == i['kind']),
+        kind: kind,
         pos: Vec2((i['x'] as num).toDouble(), (i['y'] as num).toDouble()),
         rotationDeg: (i['rot'] as num?)?.toDouble() ?? 0,
         modelId: i['model'] as String?,
@@ -625,8 +637,12 @@ extension FloorPlanRooms on FloorPlan {
         if (loop.walls.any((m) => m.id == w.id)) continue;
         final mid = Vec2((w.a.x + w.b.x) / 2, (w.a.y + w.b.y) / 2);
         bool inside = false;
-        var prev = orderedNodes(loop).first;
-        for (final n in orderedNodes(loop).sublist(1)) {
+        // 防崩：`orderedNodes` 链断了可能返回空表（`.first` 直接 RangeError →
+        // 白屏 + 下次启动弹日志页）。空环不是房间，跳过即可；顺便只算一次。
+        final on = orderedNodes(loop);
+        if (on.isEmpty) return false;
+        var prev = on.first;
+        for (final n in on.skip(1)) {
           final cur = n;
           if ((prev.y > mid.y) != (cur.y > mid.y)) {
             final xInt =

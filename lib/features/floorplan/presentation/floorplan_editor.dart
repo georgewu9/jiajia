@@ -1194,7 +1194,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
               final idx = int.tryParse(_sel!.id.replaceFirst('room:', ''));
               if (idx == null) return false;
               final rooms = _roomsOf(plan);
-              if (idx >= rooms.length) return false;
+              if (idx < 0 || idx >= rooms.length) return false;
               return plan.roomContains(rooms[idx], world);
             })();
         break;
