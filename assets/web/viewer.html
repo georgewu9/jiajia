@@ -47,8 +47,8 @@
   #fpanel input[type=range]::-moz-range-thumb {
     width: 14px; height: 14px; border-radius: 50%; background: #3B82F6;
     border: 2px solid #fff; }
-  /* 底部正中透明十字方向键（D-pad，替代旧摇杆）：3×3 网格只取十字四格 */
-  #dpad { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+  /* 底部正中透明十字方向键（D-pad，替代旧摇杆）：3×3 网格只取十字四格；整盘上浮约 100px，并避开系统手势条 */
+  #dpad { position: fixed; left: 50%; bottom: calc(100px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
     display: none; grid-template-columns: repeat(3, 44px);
     grid-template-rows: repeat(3, 44px); gap: 2px; touch-action: none; }
   #dpad button { -webkit-appearance: none; appearance: none; padding: 0;
