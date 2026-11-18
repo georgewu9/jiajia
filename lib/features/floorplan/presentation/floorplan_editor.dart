@@ -933,12 +933,19 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
 
   /// 旋转整个户型 [deg] 度（绕户型中心刚性旋转）。
   /// 墙上开洞的 offset 是「相对墙起点」的距离 → 刚性变换下不变，无需迁移。
+  ///
+  /// 【铁律】全图旋转时，房间内所有设施与家具必须与墙同步刚性旋转：
+  /// `pos`（位置）和 `rotationDeg`（朝向）两个都要动。只转位置会让 L 型楼梯、
+  /// 沙发等带朝向的件看起来「没转」。以后改本方法或新增坐标变换（镜像/整体搬移），
+  /// 先检查 墙 / 开洞 / 家具位置 / 家具朝向 四类是否全部同步。
   void _applyRotate(double deg) {
     if (deg == 0) return;
+    // 归一化到 0..359：滑杆可能给出负值或超过 360 的值（Dart 的 % 对正除数恒非负）
+    final d = deg % 360;
     final notifier = ref.read(editorDocProvider.notifier);
     notifier.mutate((p) {
       final c = _planCenter(p);
-      final r = deg * math.pi / 180;
+      final r = d * math.pi / 180;
       final cos = math.cos(r), sin = math.sin(r);
       Vec2 rot(Vec2 v) => Vec2(
             c.x + (v.x - c.x) * cos - (v.y - c.y) * sin,
@@ -954,7 +961,9 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
         );
       }
       for (final i in p.items.values) {
+        // 位置与朝向同步刚性旋转（见方法注释里的铁律）
         i.pos = rot(i.pos);
+        i.rotationDeg = ((i.rotationDeg + d) % 360).abs();
       }
     });
     _sel = null;

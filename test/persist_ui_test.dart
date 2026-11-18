@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -137,6 +139,56 @@ void main() {
       expect((minX + maxX) / 2, closeTo(cx, 0.05));
       // 房间仍可识别
       expect(p.roomLoops(), hasLength(1));
+    });
+
+    // 回归：全图旋转时家具朝向必须跟着墙一起转。
+    // 用户报「房间转了但楼梯没转」——根因是只旋转了 pos、漏了 rotationDeg。
+    testWidgets('旋转 90°：楼梯位置与朝向同步旋转', (tester) async {
+      final (container, _) = await pumpEditorTall(tester);
+      await createRoom(tester);
+      final plan0 = container.read(editorDocProvider).plan;
+
+      // 户型中心（与 _planCenter 同口径：所有墙端点 bbox 的中心）
+      double minX = double.infinity, maxX = -double.infinity;
+      double minY = double.infinity, maxY = -double.infinity;
+      for (final w in plan0.walls.values) {
+        for (final v in [w.a, w.b]) {
+          minX = math.min(minX, v.x);
+          maxX = math.max(maxX, v.x);
+          minY = math.min(minY, v.y);
+          maxY = math.max(maxY, v.y);
+        }
+      }
+      final c = Vec2((minX + maxX) / 2, (minY + maxY) / 2);
+
+      // 放一个 L 型楼梯：中心右侧 1m，朝向 0°
+      const sid = 'stair_regress';
+      container.read(editorDocProvider.notifier).mutate((p) {
+        p.items[sid] = FurnitureItem(
+          id: sid,
+          kind: FurnitureKind.stairR,
+          pos: Vec2(c.x + 1, c.y),
+          rotationDeg: 0,
+        );
+      });
+      await tester.pump();
+
+      // 走 UI 快捷 90°（AppBar 旋转图标 → 90° → 应用旋转）
+      await tester.tap(find.byIcon(Icons.rotate_90_degrees_cw));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.text('90°'));
+      await tester.pump();
+      await tester.tap(find.text('应用旋转'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final it = container.read(editorDocProvider).plan.items[sid]!;
+      // ① 位置转了：中心右侧 → 中心正下方（+90° 为屏幕顺时针，y 向下）
+      expect(it.pos.x, closeTo(c.x, 0.01), reason: '楼梯 x 应回到中心线');
+      expect(it.pos.y, closeTo(c.y + 1, 0.01), reason: '楼梯应转到中心下方');
+      // ② 朝向转了
+      expect(it.rotationDeg, closeTo(90, 1e-6), reason: '楼梯朝向应 +90°');
     });
 
     testWidgets('保存 → 文件名可改（改后 App 标题同步）', (tester) async {
