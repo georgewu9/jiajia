@@ -96,6 +96,9 @@
   var mode = 'orbit';
   var fpYaw = 0, fpPitch = -0.05; // 第一视角
   var fpPos = new THREE.Vector3(0, 1.6, 0);
+  var fpFov = 75;   // 第一视角「广角」当前值（度）：相机 fov
+  var fpEye = 1.6;  // 第一视角「人眼视角」当前值（米）：玩家相机高度
+  var miniT = 0;    // 小地图重画节流计时（10fps 足够，省绘图层）
   var moveVec = { x: 0, z: 0 }; // 摇杆
   var keys = {};
   var lastPlan = null;
@@ -508,6 +511,71 @@
         (b.minX + b.maxX) / 2, 0, (b.minY + b.maxY) / 2);
   }
 
+  // ---------- 第一视角小地图（右上角 2D 户型 + 玩家朝向锥） ----------
+  // 画布 240×240 物理像素、CSS 120px（2x，白底半透明由 #mini 的样式负责）。
+  // 坐标：平面 (x,y) → 小地图像素 (x, y) 直接等比缩放，与 3D 的 w2v(x,y)=(x,0,y)
+  // 一致（平面 y 轴 = 3D z 轴 = 画布向下），所以朝向只需换算相机视线的 xz 分量。
+  var miniCv = document.getElementById('mini');
+  var miniCtx = miniCv ? miniCv.getContext('2d') : null;
+
+  function drawMini() {
+    if (!miniCtx) return;
+    var W = miniCv.width, H = miniCv.height; // 240×240
+    var g = miniCtx;
+    g.clearRect(0, 0, W, H);
+    if (!lastPlan || !lastPlan.walls || !lastPlan.walls.length) return;
+
+    // 1) 户型包围盒 → 等比 fit（四周留 14px 边距），居中
+    var b = boundsOf(lastPlan);
+    var pad = 14;
+    var spanX = Math.max(0.5, b.maxX - b.minX);
+    var spanY = Math.max(0.5, b.maxY - b.minY);
+    var s = Math.min((W - pad * 2) / spanX, (H - pad * 2) / spanY);
+    var ox = (W - spanX * s) / 2 - b.minX * s;
+    var oy = (H - spanY * s) / 2 - b.minY * s;
+    var mp = function (x, y) { return [x * s + ox, y * s + oy]; };
+
+    // 2) 户型墙线：#333，3px（墙厚不画，保持雷达图清爽）
+    g.strokeStyle = '#333';
+    g.lineWidth = 3;
+    g.lineCap = 'round';
+    g.beginPath();
+    for (var i = 0; i < lastPlan.walls.length; i++) {
+      var w = lastPlan.walls[i];
+      var p0 = mp(w.ax, w.ay), p1 = mp(w.bx, w.by);
+      g.moveTo(p0[0], p0[1]);
+      g.lineTo(p1[0], p1[1]);
+    }
+    g.stroke();
+
+    // 3) 玩家：蓝色楔形（雷达锥）+ 中心实心圆点
+    //    朝向取「相机实际视线」的水平分量：主循环里 camera.rotateY(fpYaw + π)，
+    //    而 three.js 相机默认看向自身 -Z，所以视线 = (sin yaw, cos yaw)（xz 平面）。
+    //    （注意：主循环里算出的 fx/fz = (-sin,-cos) 与视线正好相反，是既有代码的
+    //     历史约定；锥体按“画面里看到的方向”画，才和人眼所见一致。）
+    var pp = mp(fpPos.x, fpPos.z);
+    var ang = Math.atan2(Math.cos(fpYaw), Math.sin(fpYaw));
+    var R = 26, half = 0.40; // 锥长 26px、半张角约 23°
+    g.beginPath();
+    g.moveTo(pp[0], pp[1]);
+    g.arc(pp[0], pp[1], R, ang - half, ang + half);
+    g.closePath();
+    g.fillStyle = 'rgba(59,130,246,.30)';
+    g.fill();
+    g.strokeStyle = 'rgba(59,130,246,.85)';
+    g.lineWidth = 1.5;
+    g.stroke();
+
+    // 中心点：白描边保证压住墙线也看得清
+    g.beginPath();
+    g.arc(pp[0], pp[1], 5, 0, Math.PI * 2);
+    g.fillStyle = '#3B82F6';
+    g.fill();
+    g.strokeStyle = '#fff';
+    g.lineWidth = 2;
+    g.stroke();
+  }
+
   function applyPlan(jsonStr) {
     clearRoot();
     doorsDbg = []; windowsDbg = [];
@@ -525,7 +593,7 @@
       camera.lookAt(c);
     } else if (mode === 'first') {
       fpPos.copy(c);
-      fpPos.y = 1.6;
+      fpPos.y = fpEye; // 人眼高度跟随滑杆（默认 1.6m）
       fpYaw = Math.PI; // 面向户型
       fpPitch = -0.05;
     } else {
@@ -555,17 +623,48 @@
     },
     setMode: function (m) {
       mode = m;
-      document.getElementById('joy').style.display =
-          m === 'first' ? 'block' : 'none';
+      var isFirst = m === 'first';
+      // 第一视角专属 UI：小地图 / 滑杆卡片 / 方向键一起显隐；
+      // 旧摇杆（#joy）不再参与第一视角——原 app 用 D-pad，摇杆只留代码不显示。
+      document.getElementById('joy').style.display = 'none';
+      document.getElementById('mini').style.display = isFirst ? 'block' : 'none';
+      document.getElementById('fpanel').style.display = isFirst ? 'block' : 'none';
+      document.getElementById('dpad').style.display = isFirst ? 'grid' : 'none';
       document.getElementById('hint').textContent =
-          m === 'first' ? '摇杆移动 · 拖动转向'
+          isFirst ? '方向键移动 · 拖动转向'
           : m === 'top' ? '俯视图 · 双指缩放/平移' : '轨道视角 · 拖动旋转';
       var c = lastPlan ? centerOf(lastPlan) : new THREE.Vector3(0, 0, 0);
       if (controls) {
         controls.enabled = m !== 'first';
       }
       if (lastPlan) applyPlan(JSON.stringify(lastPlan));
+      // 进入第一视角套用滑杆当前值（广角/人眼高度）；离开时恢复默认 55° 透视，
+      // 免得轨道/俯视视角被广角拉变形
+      if (isFirst) {
+        camera.fov = fpFov;
+        camera.updateProjectionMatrix();
+        fpPos.y = fpEye;
+        drawMini();
+      } else {
+        camera.fov = 55;
+        camera.updateProjectionMatrix();
+      }
+      moveVec.x = 0; moveVec.z = 0; // 切模式清掉残留方向，避免一直平移
       post({ type: 'mode', mode: m });
+    },
+    // 调试探针：第一视角 UI 状态（无 UI 影响，自动化验证用）
+    uiState: function () {
+      var vis = function (id) {
+        var el = document.getElementById(id);
+        return !!el && getComputedStyle(el).display !== 'none';
+      };
+      return {
+        mode: mode, fov: fpFov, fovApplied: +camera.fov.toFixed(2),
+        eye: fpEye, camY: +fpPos.y.toFixed(2),
+        pos: [+fpPos.x.toFixed(3), +fpPos.z.toFixed(3)], yaw: +fpYaw.toFixed(3),
+        mini: vis('mini'), panel: vis('fpanel'), dpad: vis('dpad'),
+        joy: vis('joy'), move: [moveVec.x, moveVec.z]
+      };
     }
   };
 
@@ -639,6 +738,73 @@
     knob.style.transform = 'translate(' + dx * 28 + 'px,' + dy * 28 + 'px)';
   }
 
+  // ---------- 第一视角滑杆：广角（相机 fov） / 人眼视角（相机高度） ----------
+  var fovSl = document.getElementById('fovSl');
+  var eyeSl = document.getElementById('eyeSl');
+  var fovVal = document.getElementById('fovVal');
+  var eyeVal = document.getElementById('eyeVal');
+
+  function applyFov() {
+    var v = parseFloat(fovSl.value);
+    if (!isFinite(v)) v = 75;
+    fpFov = Math.max(40, Math.min(110, v));
+    fovVal.textContent = Math.round(fpFov) + '°'; // 仿原 app：广角 75°
+    // 只改第一视角的相机；切回 orbit/top 时 setMode 会还原 55°
+    if (mode === 'first') {
+      camera.fov = fpFov;
+      camera.updateProjectionMatrix();
+    }
+  }
+  function applyEye() {
+    var v = parseFloat(eyeSl.value);
+    if (!isFinite(v)) v = 1.6;
+    fpEye = Math.max(0.5, Math.min(3, v));
+    eyeVal.textContent = fpEye.toFixed(1) + 'm';
+    if (mode === 'first') fpPos.y = fpEye; // 只影响第一视角玩家高度
+  }
+  if (fovSl) fovSl.addEventListener('input', applyFov);
+  if (eyeSl) eyeSl.addEventListener('input', applyEye);
+  if (fovVal) fovVal.textContent = Math.round(fpFov) + '°';
+  if (eyeVal) eyeVal.textContent = fpEye.toFixed(1) + 'm';
+
+  // ---------- 第一视角方向键（D-pad）：按住定向 → 写 moveVec，松手复位 ----------
+  // moveVec 由主循环按 fpYaw 换算成 mx/mz（这部分是原摇杆的老算法，保持不动）。
+  // 关键：主循环的 fx/fz = (-sin,-cos) 与相机视线 (sin,cos) 相差 180°（见 drawMini
+  // 注释），如果照搬摇杆的正负号，按「上」会背对画面后退。所以这里按**视线**方向
+  // 取反映射：上=向画面里走、下=后退、右=画面右手侧移、左=左手侧移。
+  var dpad = document.getElementById('dpad');
+  var DP_DIR = { up: [0, 1], down: [0, -1], left: [1, 0], right: [-1, 0] };
+  var dpActive = null;
+  function setDpad(id) {
+    var d = id ? DP_DIR[id] : null;
+    moveVec.x = d ? d[0] : 0;
+    moveVec.z = d ? d[1] : 0;
+    ['up', 'down', 'left', 'right'].forEach(function (k) {
+      var b = document.getElementById('dp-' + k);
+      if (b) b.classList.toggle('on', k === id);
+    });
+  }
+  if (dpad) {
+    ['up', 'down', 'left', 'right'].forEach(function (k) {
+      var b = document.getElementById('dp-' + k);
+      if (!b) return;
+      b.addEventListener('pointerdown', function (e) {
+        e.preventDefault();
+        dpActive = k;
+        try { b.setPointerCapture(e.pointerId); } catch (err) {}
+        setDpad(k);
+      });
+      var end = function () {
+        if (dpActive !== k) return;
+        dpActive = null;
+        setDpad(null);
+      };
+      b.addEventListener('pointerup', end);
+      b.addEventListener('pointercancel', end);
+      b.addEventListener('lostpointercapture', end);
+    });
+  }
+
   // 主循环
   var clock = new THREE.Clock();
   function loop() {
@@ -658,12 +824,19 @@
       var p = collide(nx, nz);
       fpPos.x = p[0];
       fpPos.z = p[1];
-      fpPos.y = 1.6;
+      fpPos.y = fpEye; // 人眼高度由滑杆决定（默认 1.6m）
       camera.position.copy(fpPos);
       camera.up.set(0, 1, 0);
       camera.rotation.set(0, 0, 0);
       camera.rotateY(fpYaw + Math.PI);
       camera.rotateX(fpPitch);
+
+      // 小地图节流 10fps 重画（朝向/位置变化平缓，不必每帧清画布）
+      var now = (window.performance && performance.now) ? performance.now() : Date.now();
+      if (now - miniT >= 100) {
+        miniT = now;
+        drawMini();
+      }
     } else if (controls) {
       controls.update();
     }

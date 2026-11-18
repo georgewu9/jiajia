@@ -16,12 +16,87 @@
   #knob { position: absolute; left: 50%; top: 50%; width: 44px; height: 44px;
     margin: -22px 0 0 -22px; border-radius: 50%; background: #3b82f6;
     box-shadow: 0 0 14px rgba(59,130,246,.45); pointer-events: none; }
+
+  /* ───── 第一视角 UI（v0.1.29）───── */
+  /* 右上角 2D 小地图：白底半透明 + 细蓝边，尺寸 120CSS（画布 240 物理像素，2x 清晰） */
+  #mini { position: fixed; top: 12px; right: 12px; width: 120px; height: 120px;
+    border-radius: 12px; background: rgba(255,255,255,.85);
+    border: 1px solid #d3e6f5; display: none; pointer-events: none;
+    box-shadow: 0 2px 10px rgba(40,90,140,.14); }
+  /* 右侧滑杆卡片：小地图正下方，两个横滑杆竖排（手机竖屏右手拇指可达） */
+  #fpanel { position: fixed; top: 142px; right: 12px; width: 144px; box-sizing: border-box;
+    background: rgba(255,255,255,.85); border: 1px solid #d3e6f5;
+    border-radius: 12px; padding: 8px 10px 9px; display: none;
+    font: 12px/1.4 -apple-system, "PingFang SC", sans-serif; color: #333;
+    box-shadow: 0 2px 10px rgba(40,90,140,.14); touch-action: none; }
+  #fpanel .row + .row { margin-top: 9px; }
+  #fpanel .lab { display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 2px; color: #333; }
+  #fpanel .lab b { font-weight: 600; }
+  #fpanel .lab span { color: #3B82F6; font-weight: 600; }
+  #fpanel input[type=range] { -webkit-appearance: none; appearance: none;
+    width: 100%; height: 18px; margin: 0; background: transparent; }
+  #fpanel input[type=range]::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 2px; background: #dbe9f5; }
+  #fpanel input[type=range]::-webkit-slider-thumb { -webkit-appearance: none;
+    width: 16px; height: 16px; margin-top: -6px; border-radius: 50%;
+    background: #3B82F6; border: 2px solid #fff;
+    box-shadow: 0 1px 4px rgba(59,130,246,.45); }
+  #fpanel input[type=range]::-moz-range-track {
+    height: 4px; border-radius: 2px; background: #dbe9f5; }
+  #fpanel input[type=range]::-moz-range-thumb {
+    width: 14px; height: 14px; border-radius: 50%; background: #3B82F6;
+    border: 2px solid #fff; }
+  /* 底部正中透明十字方向键（D-pad，替代旧摇杆）：3×3 网格只取十字四格 */
+  #dpad { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+    display: none; grid-template-columns: repeat(3, 44px);
+    grid-template-rows: repeat(3, 44px); gap: 2px; touch-action: none; }
+  #dpad button { -webkit-appearance: none; appearance: none; padding: 0;
+    background: rgba(255,255,255,.35); border: 1px solid rgba(255,255,255,.85);
+    border-radius: 12px; color: #333; font: 16px/1 -apple-system, sans-serif;
+    touch-action: none; -webkit-user-select: none; user-select: none;
+    backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
+  #dpad button:active, #dpad button.on { background: rgba(255,255,255,.62); }
+  #dpad button i { display: block; width: 0; height: 0; margin: 0 auto;
+    border: 8px solid transparent; }
+  #dpad #dp-up { grid-area: 1 / 2; }
+  #dpad #dp-left { grid-area: 2 / 1; }
+  #dpad #dp-right { grid-area: 2 / 3; }
+  #dpad #dp-down { grid-area: 3 / 2; }
+  #dpad #dp-up i { border-bottom-color: #333; margin-bottom: 6px; }
+  #dpad #dp-down i { border-top-color: #333; margin-top: 6px; }
+  #dpad #dp-left i { border-right-color: #333; }
+  #dpad #dp-right i { border-left-color: #333; }
+  /* 窄屏：提示条让位给右上小地图，避免文字压到地图上 */
+  @media (max-width: 520px) {
+    #hint { left: 12px; transform: none; max-width: calc(100% - 150px); }
+  }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="hint">…</div>
 <div id="joy"><div id="knob"></div></div>
+<!-- 第一视角：右上小地图（2D 户型 + 玩家朝向锥） -->
+<canvas id="mini" width="240" height="240"></canvas>
+<!-- 第一视角：右侧两个滑杆（广角 / 人眼高度），值实时回显 -->
+<div id="fpanel">
+  <div class="row">
+    <div class="lab"><b>广角</b><span id="fovVal">75°</span></div>
+    <input id="fovSl" type="range" min="40" max="110" step="1" value="75">
+  </div>
+  <div class="row">
+    <div class="lab"><b>人眼视角</b><span id="eyeVal">1.6m</span></div>
+    <input id="eyeSl" type="range" min="0.5" max="3" step="0.1" value="1.6">
+  </div>
+</div>
+<!-- 第一视角：底部正中透明十字方向键（替代旧摇杆） -->
+<div id="dpad">
+  <button id="dp-up" type="button" aria-label="前进"><i></i></button>
+  <button id="dp-left" type="button" aria-label="左移"><i></i></button>
+  <button id="dp-right" type="button" aria-label="右移"><i></i></button>
+  <button id="dp-down" type="button" aria-label="后退"><i></i></button>
+</div>
 <script src="three.min.js"></script>
 <script src="OrbitControls.js"></script>
 <script src="models.js"></script>
