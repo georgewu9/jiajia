@@ -71,6 +71,12 @@ final editorDocProvider =
 /// 约定：一个户型 = plans/<名称>.json；名称做了清洗（去非法字符/限长），
 /// 重名自动加 (1)(2)…，不会互相覆盖。
 class PlanStore {
+  /// 可选的根目录：默认 app 文档目录（path_provider）；单测传临时目录，
+  /// 避免依赖平台通道。生产代码一律 `PlanStore()`。
+  final Directory? root;
+
+  PlanStore({this.root});
+
   /// 文件名清洗：去掉路径/分隔/危险字符，限长 40，空给默认。
   static String sanitizeName(String raw) {
     final cleaned = raw.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
@@ -79,7 +85,7 @@ class PlanStore {
   }
 
   Future<Directory> _dir() async {
-    final app = await getApplicationDocumentsDirectory();
+    final app = root ?? await getApplicationDocumentsDirectory();
     final dir = Directory('${app.path}/plans');
     if (!await dir.exists()) await dir.create(recursive: true);
     return dir;

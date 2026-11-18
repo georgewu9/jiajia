@@ -10,6 +10,7 @@ import 'diag/boot_log.dart' show bootLog;
 import 'features/floorplan/domain/floor_plan.dart';
 import 'features/floorplan/presentation/floorplan_editor.dart';
 import 'features/floorplan/state/editor_doc.dart';
+import 'features/floorplan/state/plan_io.dart';
 import 'features/viewer3d/viewer3d_page.dart';
 
 /// jiajia：画户型 → 摆家具 → 3D 浏览。
@@ -322,14 +323,17 @@ class JiajiaApp extends StatelessWidget {
 /// 保证 release 下一定能画出来；户型编辑 / 3D 全部按需路由进入。
 /// 含「我的户型」：打开/删除已保存的方案（本地 plans/*.json）。
 class LandingPage extends StatefulWidget {
-  const LandingPage({super.key});
+  const LandingPage({super.key, this.store});
+
+  /// 可注入的存储（单测传临时目录）；生产走默认 app 文档目录。
+  final PlanStore? store;
 
   @override
   State<LandingPage> createState() => LandingPageState();
 }
 
 class LandingPageState extends State<LandingPage> {
-  final _store = PlanStore();
+  late final PlanStore _store = widget.store ?? PlanStore();
   List<PlanEntry> _plans = const [];
   bool _loading = true;
 
@@ -390,6 +394,56 @@ class LandingPageState extends State<LandingPage> {
     await _refresh();
   }
 
+  /// 导出单条户型到外部目录（系统「另存为」）：重装 app 不丢。
+  /// 内容直接取私有目录里的原文件字节（不经解析，保证原样）。
+  Future<void> _exportPlan(BuildContext context, PlanEntry e) async {
+    final name = '${PlanStore.sanitizeName(e.name)}.json';
+    try {
+      final text = await File(e.path).readAsString();
+      final saved = await PlanIo.exportJson(fileName: name, json: text);
+      if (saved == null) return; // 用户取消：不提示
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('已导出到 ${PlanIo.displayLocation(saved, name)}'),
+      ));
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('导出失败')));
+    }
+  }
+
+  /// 导入时避免覆盖：与已有户型同名 → 依次加 (1)(2)…（导入不该顶掉正在编辑的版本）。
+  String _uniqueImportName(String base) {
+    final used = _plans.map((e) => e.name).toSet();
+    if (!used.contains(base)) return base;
+    var n = 1;
+    while (used.contains('$base($n)')) {
+      n++;
+    }
+    return '$base($n)';
+  }
+
+  /// 从外部目录导入户型：解析 → 存回私有 plans/（重名自动加后缀）→ 刷新列表。
+  /// 不是合法户型 JSON → 统一提示导入失败。
+  Future<void> _importPlan(BuildContext context) async {
+    try {
+      final text = await PlanIo.pickJsonText();
+      if (text == null) return; // 用户取消
+      final plan = FloorPlan.fromJsonString(text);
+      plan.name = _uniqueImportName(plan.name);
+      await _store.save(plan);
+      await _refresh();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已导入 ${plan.name}')));
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('导入失败：文件不是有效户型')));
+    }
+  }
+
   String _fmtTime(DateTime t) {
     String two(int v) => v.toString().padLeft(2, '0');
     return '${t.year}-${two(t.month + 1)}-${two(t.day)} '
@@ -425,11 +479,23 @@ class LandingPageState extends State<LandingPage> {
                           style:
                               const TextStyle(fontSize: 11, color: JiajiaColors.text2)),
                       onTap: () => _openPlan(context, e),
-                      trailing: IconButton(
-                        tooltip: '删除',
-                        icon: const Icon(Icons.delete_outline,
-                            size: 18, color: JiajiaColors.text2),
-                        onPressed: () => _deletePlan(e),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            key: ValueKey('export_${e.path}'),
+                            tooltip: '导出到文件',
+                            icon: const Icon(Icons.save_alt,
+                                size: 18, color: JiajiaColors.accent),
+                            onPressed: () => _exportPlan(context, e),
+                          ),
+                          IconButton(
+                            tooltip: '删除',
+                            icon: const Icon(Icons.delete_outline,
+                                size: 18, color: JiajiaColors.text2),
+                            onPressed: () => _deletePlan(e),
+                          ),
+                        ],
                       ),
                     ),
                 ],
@@ -536,13 +602,37 @@ class LandingPageState extends State<LandingPage> {
                   ),
                   const SizedBox(height: 36),
                   // ---------------- 我的户型 ----------------
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text('我的户型',
-                        style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: JiajiaColors.text1)),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text('我的户型',
+                            style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: JiajiaColors.text1)),
+                      ),
+                      // 导入：从外部 .json 导回「我的户型」（重装前的备份也能找回）
+                      OutlinedButton.icon(
+                        key: const ValueKey('import_plan_btn'),
+                        onPressed: () => _importPlan(context),
+                        icon: const Icon(Icons.file_open,
+                            size: 16, color: JiajiaColors.accent),
+                        label: const Text(
+                          '导入',
+                          style: TextStyle(
+                              fontSize: 12, color: JiajiaColors.text1),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: JiajiaColors.line),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          minimumSize: const Size(0, 32),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 10),
                   ConstrainedBox(

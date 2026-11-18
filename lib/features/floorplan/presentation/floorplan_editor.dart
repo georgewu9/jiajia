@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import '../domain/floor_plan.dart';
 import '../domain/model_assets.dart';
 import '../domain/model_items.dart';
 import '../state/editor_doc.dart';
+import '../state/plan_io.dart';
 import 'plan_palette.dart';
 import '../../viewer3d/viewer3d_page.dart';
 
@@ -1054,15 +1056,50 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
           '保存户型',
           style: TextStyle(color: JiajiaColors.text1, fontSize: 16),
         ),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 40,
-          style: const TextStyle(color: JiajiaColors.text1, fontSize: 14),
-          decoration: const InputDecoration(
-            labelText: '文件名',
-            helperText: '将存入本机「我的户型」',
-          ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: controller,
+              autofocus: true,
+              maxLength: 40,
+              style: const TextStyle(color: JiajiaColors.text1, fontSize: 14),
+              decoration: const InputDecoration(
+                labelText: '文件名',
+                helperText: '将存入本机「我的户型」',
+              ),
+            ),
+            const SizedBox(height: 4),
+            // 另存到外部目录（SAF）：重装 app 不会丢，可直接分享/备份。
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  // 导出文件里的 name 与文件名保持一致（导回来显示同一个名字）；
+                  // 只改这份 JSON 拷贝，不动编辑器里的 plan.name。
+                  final name = PlanStore.sanitizeName(controller.text);
+                  final data =
+                      jsonDecode(plan.toJsonString()) as Map<String, dynamic>;
+                  data['name'] = name;
+                  Navigator.pop(c);
+                  await _exportExternal(context, plan,
+                      fileName: '$name.json', json: jsonEncode(data));
+                },
+                icon: const Icon(Icons.save_alt,
+                    size: 16, color: JiajiaColors.accent),
+                label: const Text(
+                  '另存到外部…',
+                  style: TextStyle(fontSize: 12, color: JiajiaColors.text1),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: JiajiaColors.line),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -1087,6 +1124,29 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
         ],
       ),
     );
+  }
+
+  /// 另存到外部目录（系统「另存为」）：写用户选的目录，重装 app 不丢。
+  /// 与 [_save]（私有 plans/ 目录）互不影响；取消选择时静默返回。
+  /// [json] 可覆盖导出内容（对话框改名时用），默认写当前 plan。
+  Future<void> _exportExternal(BuildContext context, FloorPlan plan,
+      {String? fileName, String? json}) async {
+    final name = fileName ?? '${PlanStore.sanitizeName(plan.name)}.json';
+    try {
+      final saved = await PlanIo.exportJson(
+        fileName: name,
+        json: json ?? plan.toJsonString(),
+      );
+      if (saved == null) return; // 用户取消：不提示
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('已导出到 ${PlanIo.displayLocation(saved, name)}'),
+      ));
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('导出失败')));
+    }
   }
 
   void _newPlan(FloorPlan plan) {
