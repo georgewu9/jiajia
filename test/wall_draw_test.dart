@@ -43,7 +43,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300)); // DSS 动画
     expect(find.text('门'), findsOneWidget);
     expect(find.text('拆改'), findsOneWidget);
-    // 二级：梁柱（柱 + 台面/五金）
+    // 二级：梁柱（柱 + 梁，7 件）
     await tester.tap(find.text('梁柱'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));

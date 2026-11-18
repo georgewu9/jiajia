@@ -10,6 +10,7 @@ import '../domain/floor_plan.dart';
 import '../domain/model_assets.dart';
 import '../domain/model_items.dart';
 import '../state/editor_doc.dart';
+import 'plan_palette.dart';
 import '../../viewer3d/viewer3d_page.dart';
 
 enum EditorTool { wall, select, opening, furniture, erase }
@@ -581,7 +582,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                   Icons.architecture,
                   () => _openModuleModelsSheet(
                     '梁柱 · 素材',
-                    ModelItems.byCategories(['柱', '台面/五金']),
+                    ModelItems.byCategories(['柱', '梁']),
                   ),
                 ),
                 _moduleEntry(
@@ -3045,7 +3046,7 @@ class _PlanPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawColor(JiajiaColors.bgBase, BlendMode.src);
+    canvas.drawColor(PlanPalette.bg, BlendMode.src);
     _paintGrid(canvas, size);
     if (rooms.isNotEmpty && showAreas) _paintRooms(canvas);
     _paintWalls(canvas);
@@ -3055,7 +3056,7 @@ class _PlanPainter extends CustomPainter {
     if (draft != null) _paintWallDraft(canvas, draft!.$1, draft!.$2);
   }
 
-  /// 选中房间：外轮廓高亮（accent 描边 + 半透明填充）。
+  /// 选中房间：外轮廓高亮（亮橙描边 + 半透明填充）。
   void _paintSelRoom(Canvas canvas) {
     final i = int.tryParse(sel!.id.replaceFirst('room:', ''));
     if (i == null || i < 0 || i >= rooms.length) return;
@@ -3071,13 +3072,13 @@ class _PlanPainter extends CustomPainter {
     canvas.drawPath(
       path,
       Paint()
-        ..color = JiajiaColors.sel.withValues(alpha: 0.14)
+        ..color = PlanPalette.sel.withValues(alpha: 0.14)
         ..style = PaintingStyle.fill,
     );
     canvas.drawPath(
       path,
       Paint()
-        ..color = JiajiaColors.sel
+        ..color = PlanPalette.sel
         ..strokeWidth = 2
         ..style = PaintingStyle.stroke,
     );
@@ -3092,7 +3093,7 @@ class _PlanPainter extends CustomPainter {
         text: TextSpan(
           text: '${m2.toStringAsFixed(1)}㎡',
           style: const TextStyle(
-            color: JiajiaColors.accent,
+            color: PlanPalette.text,
             fontSize: 13,
             fontWeight: FontWeight.w600,
           ),
@@ -3117,14 +3118,14 @@ class _PlanPainter extends CustomPainter {
       final major = (x % 1.0).abs() < 0.01 || (x % 1.0 - 1).abs() < 0.01;
       final px = cam.toScreen(Vec2(x, 0)).dx;
       final paint = Paint()
-        ..color = major ? JiajiaColors.gridMajor : JiajiaColors.gridMinor
+        ..color = major ? PlanPalette.gridMajor : PlanPalette.gridMinor
         ..strokeWidth = major ? 1.2 : 0.7;
       canvas.drawLine(Offset(px, 0), Offset(px, size.height), paint);
       if (major && x.abs() > 0.01) {
         final tp = TextPainter(
           text: TextSpan(
             text: '${(x / 1.0).round()}',
-            style: const TextStyle(color: JiajiaColors.text3, fontSize: 9),
+            style: const TextStyle(color: PlanPalette.gridText, fontSize: 9),
           ),
           textDirection: TextDirection.ltr,
         )..layout();
@@ -3135,14 +3136,14 @@ class _PlanPainter extends CustomPainter {
       final major = (y % 1.0).abs() < 0.01 || (y % 1.0 - 1).abs() < 0.01;
       final py = cam.toScreen(Vec2(0, y)).dy;
       final paint = Paint()
-        ..color = major ? JiajiaColors.gridMajor : JiajiaColors.gridMinor
+        ..color = major ? PlanPalette.gridMajor : PlanPalette.gridMinor
         ..strokeWidth = major ? 1.2 : 0.7;
       canvas.drawLine(Offset(0, py), Offset(size.width, py), paint);
       if (major && y.abs() > 0.01) {
         final tp = TextPainter(
           text: TextSpan(
             text: '${(y / 1.0).round()}m',
-            style: const TextStyle(color: JiajiaColors.text3, fontSize: 9),
+            style: const TextStyle(color: PlanPalette.gridText, fontSize: 9),
           ),
           textDirection: TextDirection.ltr,
         )..layout();
@@ -3181,16 +3182,16 @@ class _PlanPainter extends CustomPainter {
           path,
           Paint()
             ..color = sel?.id == w.id
-                ? JiajiaColors.wallSelected
-                : JiajiaColors.wall,
+                ? PlanPalette.sel
+                : PlanPalette.wall,
         );
         // 尺寸标注（mm）
         final mid = (p0o + p0i + p1o + p1i) / 4;
         final tp = TextPainter(
           text: TextSpan(
             text: '${toMm(w.length)}mm',
-            style: TextStyle(
-              color: sel?.id == w.id ? JiajiaColors.sel : JiajiaColors.text2,
+            style: const TextStyle(
+              color: PlanPalette.text,
               fontSize: 10,
             ),
           ),
@@ -3206,7 +3207,7 @@ class _PlanPainter extends CustomPainter {
   }
 
   void _paintLabelBg(Canvas canvas, Offset p, TextPainter tp) {
-    final paint = Paint()..color = JiajiaColors.bgBase;
+    final paint = Paint()..color = PlanPalette.bg;
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTRB(
@@ -3237,9 +3238,9 @@ class _PlanPainter extends CustomPainter {
       final hB = p0 + vec * t1; // 开洞终点
       final oPx = o.width * cam.ppm;
 
-      // 选中开洞 → 亮黄高亮（v0.1.18）；门扇方向随 内开/外开（side ±1）
+      // 选中开洞 → 亮橙高亮；门扇方向随 内开/外开（side ±1）
       final openColor =
-          sel?.id == o.id ? JiajiaColors.sel : JiajiaColors.opening;
+          sel?.id == o.id ? PlanPalette.sel : PlanPalette.opening;
       final swingSide = o.outSwing ? -1.0 : 1.0;
 
       final paint = Paint()
@@ -3316,7 +3317,7 @@ class _PlanPainter extends CustomPainter {
     double _,
     double radius, {
     double side = 1,
-    Color color = JiajiaColors.opening,
+    Color color = PlanPalette.opening,
   }) {
     final paint = Paint()
       ..color = color
@@ -3368,7 +3369,7 @@ class _PlanPainter extends CustomPainter {
       text: TextSpan(
         text: o.label,
         style: TextStyle(
-          color: color ?? JiajiaColors.opening,
+          color: color ?? PlanPalette.opening,
           fontSize: 9,
           height: 1.2,
         ),
@@ -3412,7 +3413,7 @@ class _PlanPainter extends CustomPainter {
       final w = fw * cam.ppm;
       final h = fd * cam.ppm;
       final selected = sel?.id == i.id;
-      final color = selected ? JiajiaColors.sel : JiajiaColors.furniture;
+      final color = selected ? PlanPalette.sel : JiajiaColors.furniture;
       canvas.save();
       canvas.translate(p.dx, p.dy);
       canvas.rotate(i.rotationDeg * math.pi / 180);
@@ -3435,7 +3436,7 @@ class _PlanPainter extends CustomPainter {
       final tp = TextPainter(
         text: TextSpan(
           text: label,
-          style: TextStyle(color: JiajiaColors.text1, fontSize: 10),
+          style: TextStyle(color: PlanPalette.text, fontSize: 10),
         ),
         textDirection: TextDirection.ltr,
       )..layout();
@@ -3451,11 +3452,11 @@ class _PlanPainter extends CustomPainter {
     final p0 = cam.toScreen(w.a);
     final p1 = cam.toScreen(w.b);
     final paint = Paint()
-      ..color = JiajiaColors.accent
+      ..color = PlanPalette.sel
       ..strokeWidth = 3;
     canvas.drawLine(p0, p1, paint);
     for (final e in [p0, p1]) {
-      canvas.drawCircle(e, 5, Paint()..color = JiajiaColors.accent);
+      canvas.drawCircle(e, 5, Paint()..color = PlanPalette.sel);
     }
   }
 
@@ -3464,7 +3465,7 @@ class _PlanPainter extends CustomPainter {
     final p0 = cam.toScreen(a);
     final p1 = cam.toScreen(b);
     final paint = Paint()
-      ..color = JiajiaColors.accent
+      ..color = PlanPalette.opening
       ..strokeWidth = 3
       ..style = PaintingStyle.stroke;
     canvas.drawLine(p0, p1, paint);
@@ -3473,7 +3474,7 @@ class _PlanPainter extends CustomPainter {
         e,
         6,
         Paint()
-          ..color = JiajiaColors.accent
+          ..color = PlanPalette.opening
           ..style = PaintingStyle.stroke
           ..strokeWidth = 2,
       );
@@ -3482,7 +3483,7 @@ class _PlanPainter extends CustomPainter {
     final tp = TextPainter(
       text: TextSpan(
         text: '${toMm(a.distanceTo(b))}mm',
-        style: const TextStyle(color: JiajiaColors.accent, fontSize: 12),
+        style: const TextStyle(color: PlanPalette.text, fontSize: 12),
       ),
       textDirection: TextDirection.ltr,
     )..layout();

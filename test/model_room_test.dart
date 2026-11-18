@@ -109,22 +109,32 @@ void main() {
   });
 
   group('model: 模型目录（原 app 图标）', () {
-    test('目录齐 + 31 件（v0.1.17 新增 平台/弧形墙/弧形窗）', () {
+    test('目录齐 + 37 件（v0.1.26：梁柱菜单精简为 7 件）', () {
       expect(ModelItems.categories,
-          ['门', '窗', '柱', '楼梯', '台面/五金', '特殊墙窗']);
-      expect(ModelItems.all.length, 32);
+          ['门', '窗', '柱', '梁', '楼梯', '台面/五金', '特殊墙窗']);
+      expect(ModelItems.all.length, 37);
       expect(ModelItems.ofCategory('门').length, 6);
       expect(ModelItems.ofCategory('窗').length, 6);
       expect(ModelItems.ofCategory('柱').length, 2);
+      expect(ModelItems.ofCategory('梁').length, 5); // 梁/风管/包管道/裸管/地台
       expect(ModelItems.ofCategory('楼梯').length, 4);
       expect(ModelItems.ofCategory('台面/五金').length, 12);
       expect(ModelItems.ofCategory('特殊墙窗').length, 2);
-      expect(
-          ModelItems.byCategories(['柱', '台面/五金']).length, 14);
+      // 梁柱菜单 = 柱 + 梁 = 7 件（台面/五金 12 件不再进该菜单）
+      final liangzhu = ModelItems.byCategories(['柱', '梁']);
+      expect(liangzhu.length, 7);
+      expect(liangzhu.map((m) => m.label).toList(),
+          ['方柱', '圆柱', '梁', '风管', '包管道', '裸管', '地台']);
+      expect(liangzhu.any((m) => m.category == '台面/五金'), false);
       expect(ModelItems.ofCategory('门').every((m) => m.place == ModelPlace.wall), true);
       final zhu = ModelItems.ofCategory('柱');
       expect(zhu.every((m) => m.place == ModelPlace.floor), true);
       expect(zhu.every((m) => m.floorKind != null), true);
+      // 新增 5 件：floor 摆放 + 有 floorKind + 有图标
+      final liang = ModelItems.ofCategory('梁');
+      expect(liang.every((m) => m.place == ModelPlace.floor), true);
+      expect(liang.every((m) => m.floorKind != null), true);
+      expect(liang.every((m) => m.icon != null), true);
     });
   });
 
@@ -205,6 +215,11 @@ void main() {
       await tester.tap(find.text('梁柱'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
+      // v0.1.26：梁柱菜单只剩 7 件（方柱/圆柱 + 梁/风管/包管道/裸管/地台）
+      expect(find.text('梁柱 · 素材（7 件）'), findsOneWidget);
+      expect(find.text('风管'), findsOneWidget);
+      // 台面/五金 已移出梁柱菜单
+      expect(find.text('梳妆台'), findsNothing);
       await tester.tap(find.text('方柱'));
       await tester.pump();
       final cvF = find.byKey(const ValueKey('cv'));

@@ -50,11 +50,29 @@
     switchPanel: [0.1, 0.1, 0.1, 0xe5c97a],
     landing: [1.2, 1.2, 0.15, 0x9aa4b8],
     arcWall: [2.0, 0.24, 2.8, 0x9c8b7a],
+    // 梁柱菜单构件（v0.1.26：梁/风管/包管道/裸管/地台），亮色建筑风占位色
+    beam: [2.4, 0.30, 0.35, 0xcfcfcf],
+    duct: [1.2, 0.40, 0.35, 0xd8d8d8],
+    pipeCase: [0.35, 0.35, 2.8, 0xe3e3e3],
+    barePipe: [0.15, 0.15, 2.8, 0xbfc6ce],
+    platform: [1.5, 1.2, 0.15, 0xe8e8e8],
+  };
+
+  // v0.1.26 亮色建筑风配色（设计稿「图2」）：天蓝背景 + 白地 + 淡灰墙 + 深灰线条。
+  // 只作用于 3D 视图层，app 端 Flutter 暗色主题不受影响。
+  var COL = {
+    sky: 0x88c9f2,       // 场景背景（天蓝）
+    floor: 0xffffff,     // 地面（纯白）
+    wall: 0xcfcfcf,      // 墙体（淡灰）
+    edge: 0x1a1a1a,      // 墙体轮廓 / 墙顶线（深灰近黑）
+    railing: 0x2b2b2b,   // 栏杆（深灰）
+    frame: 0x333333,     // 门窗框 / 门扇（深灰）
+    glass: 0x99cde6      // 窗玻璃（半透明淡蓝）
   };
 
   var scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0e1117);
-  scene.fog = new THREE.Fog(0x0e1117, 30, 80);
+  scene.background = new THREE.Color(COL.sky);
+  scene.fog = new THREE.Fog(0xd8eefb, 45, 110); // 远景雾与天蓝背景同色系
 
   var camera = new THREE.PerspectiveCamera(
       55, 1, 0.05, 200);
@@ -64,9 +82,9 @@
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-  // 灯光
-  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-  var sun = new THREE.DirectionalLight(0xfff2d8, 0.9);
+  // 灯光（亮色配色下略提环境光，避免白墙/白地面死黑阴影）
+  scene.add(new THREE.AmbientLight(0xffffff, 0.72));
+  var sun = new THREE.DirectionalLight(0xfff6e8, 0.85);
   sun.position.set(8, 14, 6);
   scene.add(sun);
 
@@ -107,13 +125,50 @@
     var cz = (bounds.minY + bounds.maxY) / 2;
     var floor = new THREE.Mesh(
         new THREE.BoxGeometry(w, 0.05, d),
-        new THREE.MeshStandardMaterial({ color: 0x1b222c }));
+        new THREE.MeshStandardMaterial({ color: COL.floor, roughness: 0.95 }));
     floor.position.set(cx, -0.025, cz);
     root.add(floor);
 
-    var grid = new THREE.GridHelper(40, 80, 0x2a3140, 0x1a202b);
+    // 网格线在纯白地面上用浅灰（深色网格会显得脏）
+    var grid = new THREE.GridHelper(40, 80, 0xd0d0d0, 0xe6e6e6);
     grid.position.y = 0.001;
     root.add(grid);
+  }
+
+  // 墙体盒子 + 深色轮廓线（设计稿的墙顶线/墙边线效果）。
+  // 返回 group（mesh + LineSegments），调用方设 position/rotation。
+  function wallBox(len, h, t, color) {
+    var geo = new THREE.BoxGeometry(len, h, t);
+    var mesh = new THREE.Mesh(
+        geo, new THREE.MeshStandardMaterial({ color: color, roughness: 0.9 }));
+    var edges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(geo),
+        new THREE.LineBasicMaterial({ color: COL.edge, transparent: true,
+          opacity: 0.9 }));
+    var g = new THREE.Group();
+    g.add(mesh);
+    g.add(edges);
+    return g;
+  }
+
+  // 门窗框（v0.1.26 亮色建筑风）：深灰 #333 竖框 + 上下横框。
+  // 局部坐标：X 沿墙、Y 竖直、Z 过墙厚；调用方设 position/rotation。
+  function frameGroup(len, y0, h, th, color) {
+    var g = new THREE.Group();
+    var d = th + 0.02, w = 0.06;
+    var mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.6 });
+    var hh2 = Math.max(0.12, h);
+    [-len / 2 + w / 2, len / 2 - w / 2].forEach(function (x) {
+      var b = new THREE.Mesh(new THREE.BoxGeometry(w, hh2, d), mat);
+      b.position.set(x, y0 + hh2 / 2, 0);
+      g.add(b);
+    });
+    [y0 + w / 2, y0 + hh2 - w / 2].forEach(function (y) {
+      var b = new THREE.Mesh(new THREE.BoxGeometry(len, w, d), mat);
+      b.position.set(0, y, 0);
+      g.add(b);
+    });
+    return g;
   }
 
   function wallSegments(wall, plan) {
@@ -160,9 +215,7 @@
         var my = ay + dy * ((t0 + t1) / 2);
 
         if (kind === 'solid') {
-          var box = new THREE.Mesh(
-              new THREE.BoxGeometry(segLen, hh, th),
-              new THREE.MeshStandardMaterial({ color: 0x44506a }));
+          var box = wallBox(segLen, hh, th, COL.wall);
           box.position.copy(w2v(mx, my));
           box.position.y = hh / 2;
           box.rotation.y = -ang;
@@ -170,9 +223,7 @@
         } else if (kind.kind === 'door') {
           // 门洞：上方过梁（墙高 >2.1m 才有）+ 门扇
           if (hh > 2.15) {
-            var lintel = new THREE.Mesh(
-                new THREE.BoxGeometry(segLen, hh - 2.1, th),
-                new THREE.MeshStandardMaterial({ color: 0x44506a }));
+            var lintel = wallBox(segLen, hh - 2.1, th, COL.wall);
             lintel.position.copy(w2v(mx, my));
             lintel.position.y = 2.1 + (hh - 2.1) / 2;
             lintel.rotation.y = -ang;
@@ -181,6 +232,11 @@
           // v0.1.18 门扇：单开整宽、双开两端各半宽；铰链在开洞端部，
           // 90° 张开——内开朝法向内侧（side=1）、外开朝外侧（side=-1）
           if (kind.dt === 'single' || kind.dt === 'double') {
+            // 门框（深灰 #333）：门洞两侧 + 门头
+            var dFrame = frameGroup(segLen, 0, Math.min(2.1, hh), th, COL.frame);
+            dFrame.position.copy(w2v(mx, my));
+            dFrame.rotation.y = -ang;
+            root.add(dFrame);
             var L = len;
             var n2x = -dy / L, n2z = dx / L; // 法向（墙方向左侧）
             var side = kind.out ? -1 : 1;
@@ -188,7 +244,7 @@
             var leafH = 2.05;
             var leafAngle = -Math.atan2(n2z, n2x);
             var leafMat = new THREE.MeshStandardMaterial({
-              color: 0xc98d4f, roughness: 0.6
+              color: COL.frame, roughness: 0.6
             });
             var addLeaf = function (hx, hy, wl) {
               var leaf = new THREE.Mesh(
@@ -216,18 +272,21 @@
         } else if (kind.kind === 'window') {
           // 窗：窗台下实墙 + 玻璃
           var sill = kind.sill || 0.9;
-          var below = new THREE.Mesh(
-              new THREE.BoxGeometry(segLen, sill, th),
-              new THREE.MeshStandardMaterial({ color: 0x44506a }));
+          var below = wallBox(segLen, sill, th, COL.wall);
           below.position.copy(w2v(mx, my));
           below.position.y = sill / 2;
           below.rotation.y = -ang;
           root.add(below);
           var glassH = hh - sill;
+          // 窗框（深灰 #333）：窗洞四周
+          var wFrame = frameGroup(segLen, sill, glassH, th, COL.frame);
+          wFrame.position.copy(w2v(mx, my));
+          wFrame.rotation.y = -ang;
+          root.add(wFrame);
           var glass = new THREE.Mesh(
               new THREE.BoxGeometry(segLen, glassH, 0.04),
               new THREE.MeshStandardMaterial({
-                color: 0x87ceeb, transparent: true, opacity: 0.35,
+                color: COL.glass, transparent: true, opacity: 0.45,
                 side: THREE.DoubleSide
               }));
           glass.position.copy(w2v(mx, my));
@@ -375,6 +434,16 @@
           }
           mesh.position.set(i.x, 0, i.y);
           mesh.rotation.y = -((i.rot || 0) * Math.PI / 180);
+          // 栏杆素材（原 app 分类「栏杆」）统一改深灰 #2B2B2B（设计稿配色）。
+          // 材质按实例 clone，避免污染 modelCache 里共享的 proto 材质。
+          if (md.cat === '栏杆') {
+            mesh.traverse(function (o) {
+              if (o.isMesh && o.material) {
+                o.material = o.material.clone();
+                o.material.color.setHex(COL.railing);
+              }
+            });
+          }
           mesh.userData = { id: i.id, kind: i.kind, model: modelMid };
           root.add(mesh);
           return;

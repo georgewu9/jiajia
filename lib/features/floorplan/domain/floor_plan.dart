@@ -203,6 +203,13 @@ enum FurnitureKind {
 
   /// 弧形墙（模块·特殊墙窗；本版以薄墙段占位摆放，弧线绘制后续迭代）。
   arcWall,
+
+  // ---- 梁柱菜单构件（梁 / 风管 / 包管道 / 裸管 / 地台）----
+  beam,
+  duct,
+  pipeCase,
+  barePipe,
+  platform,
 }
 
 class FurnitureCatalog {
@@ -250,6 +257,12 @@ class FurnitureCatalog {
     FurnitureKind.switchPanel: (0.1, 0.1, 0.1, 0xE5C97A),
     FurnitureKind.landing: (1.2, 1.2, 0.15, 0x9AA4B8),
     FurnitureKind.arcWall: (2.0, 0.24, 2.8, 0x9C8B7A),
+    // 梁柱菜单构件（亮色建筑风占位色，3D 侧 viewer.js CATALOG 同步）
+    FurnitureKind.beam: (2.4, 0.30, 0.35, 0xCFCFCF),
+    FurnitureKind.duct: (1.2, 0.40, 0.35, 0xD8D8D8),
+    FurnitureKind.pipeCase: (0.35, 0.35, 2.8, 0xE3E3E3),
+    FurnitureKind.barePipe: (0.15, 0.15, 2.8, 0xBFC6CE),
+    FurnitureKind.platform: (1.5, 1.2, 0.15, 0xE8E8E8),
   };
 
   /// 家具工具栏可选种类（不含素材模型 asset —— 走「素材」入口）。
@@ -318,6 +331,11 @@ class FurnitureCatalog {
       FurnitureKind.switchPanel: '开关',
       FurnitureKind.landing: '平台',
       FurnitureKind.arcWall: '弧形墙',
+      FurnitureKind.beam: '梁',
+      FurnitureKind.duct: '风管',
+      FurnitureKind.pipeCase: '包管道',
+      FurnitureKind.barePipe: '裸管',
+      FurnitureKind.platform: '地台',
     };
     // 防崩：新加的 kind 若漏补 label（names 缺键），`!` 会空指针崩画布。
     return names[k] ?? k.name;

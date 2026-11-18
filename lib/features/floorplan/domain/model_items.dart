@@ -58,6 +58,7 @@ class ModelItems {
     '门',
     '窗',
     '柱',
+    '梁', // 梁/风管/包管道/裸管/地台（梁柱菜单另 5 件，设计稿称 beam）
     '楼梯',
     '台面/五金',
     '特殊墙窗',
@@ -218,6 +219,47 @@ class ModelItems {
       place: ModelPlace.floor,
       floorKind: FurnitureKind.roundPillar,
     ),
+    // ---------- 梁（梁柱菜单：梁/风管/包管道/裸管/地台）----------
+    ModelSpec(
+      id: 'liang',
+      category: '梁',
+      label: '梁',
+      icon: 'assets/models2d/icon_liang.png',
+      place: ModelPlace.floor,
+      floorKind: FurnitureKind.beam,
+    ),
+    ModelSpec(
+      id: 'fengguan',
+      category: '梁',
+      label: '风管',
+      icon: 'assets/models2d/icon_fengguan.png',
+      place: ModelPlace.floor,
+      floorKind: FurnitureKind.duct,
+    ),
+    ModelSpec(
+      id: 'baoguandao',
+      category: '梁',
+      label: '包管道',
+      icon: 'assets/models2d/icon_baoguandao.png',
+      place: ModelPlace.floor,
+      floorKind: FurnitureKind.pipeCase,
+    ),
+    ModelSpec(
+      id: 'laoguan',
+      category: '梁',
+      label: '裸管',
+      icon: 'assets/models2d/icon_laoguan.png',
+      place: ModelPlace.floor,
+      floorKind: FurnitureKind.barePipe,
+    ),
+    ModelSpec(
+      id: 'ditai',
+      category: '梁',
+      label: '地台',
+      icon: 'assets/models2d/icon_ditai.png',
+      place: ModelPlace.floor,
+      floorKind: FurnitureKind.platform,
+    ),
     // ---------- 楼梯 ----------
     ModelSpec(
       id: 'zhilouti',
@@ -371,7 +413,8 @@ class ModelItems {
   static List<ModelSpec> ofCategory(String c) =>
       all.where((m) => m.category == c).toList(growable: false);
 
-  /// 多类合并（模块·梁柱 = 柱 + 台面/五金）。
+  /// 多类合并（模块·梁柱 = 柱 + 梁，共 7 件：方柱/圆柱 + 梁/风管/包管道/裸管/地台）。
+  /// 台面/五金（12 件）不再进梁柱菜单。
   static List<ModelSpec> byCategories(Iterable<String> cs) =>
       all.where((m) => cs.contains(m.category)).toList(growable: false);
 }
