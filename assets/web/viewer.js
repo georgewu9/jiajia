@@ -203,8 +203,15 @@
             };
             var p0x = ax + dx * t0, p0y = ay + dy * t0;
             var p1x = ax + dx * t1, p1y = ay + dy * t1;
-            addLeaf(p0x, p0y, lW);
-            if (kind.dt === 'double') addLeaf(p1x, p1y, lW);
+            // v0.1.24：单开按铰链侧（hl=false → 右开，铰链在开洞右端）
+            if (kind.dt === 'double') {
+              addLeaf(p0x, p0y, lW);
+              addLeaf(p1x, p1y, lW);
+            } else if (kind.hl === false) {
+              addLeaf(p1x, p1y, lW);
+            } else {
+              addLeaf(p0x, p0y, lW);
+            }
           }
         } else if (kind.kind === 'window') {
           // 窗：窗台下实墙 + 玻璃
@@ -308,7 +315,7 @@
 
   // v0.1.22：程序化楼梯（stair/stairL/stairR 无 OBJ 模型时回退，不再是方盒子）
   // stepH=总高/步数，run1=直段步数，turn=转折（L 型有 90° 拐弯），run2=拐弯后步数
-  function buildStairs(kind, w, d, h, color, x, y, rotDeg) {
+  function buildStairs(kind, w, d, h, color, x, y, rotDeg, elev) {
     var group = new THREE.Group();
     var mat = new THREE.MeshStandardMaterial({ color: color });
     var isL = (kind === 'stairL' || kind === 'stairR');
@@ -341,7 +348,8 @@
         group.add(t2);
       }
     }
-    group.position.set(x, 0, y);
+    // v0.1.24：楼梯整体离地高度（i.el，米；二楼/错层）
+    group.position.set(x, elev || 0, y);
     group.rotation.y = -((rotDeg || 0) * Math.PI / 180);
     return group;
   }
@@ -380,7 +388,7 @@
       // v0.1.22：楼梯类 kind → 程序化台阶（替代方盒子）
       if (i.kind === 'stair' || i.kind === 'stairL' || i.kind === 'stairR') {
         var stairs = buildStairs(i.kind, bw, bd, bh, spec[3],
-            i.x, i.y, i.rot || 0);
+            i.x, i.y, i.rot || 0, i.el);
         stairs.userData = { id: i.id, kind: i.kind };
         root.add(stairs);
         return;

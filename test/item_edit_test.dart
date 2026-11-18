@@ -97,6 +97,34 @@ void main() {
       expect(it.footprint.$1, closeTo(1.2, 1e-6));
       expect(it.footprint.$2, closeTo(2.6, 1e-6));
     });
+
+    test('v0.1.24 elevation：JSON 往返 el + 旧 JSON 默认 0', () {
+      final p = FloorPlan();
+      p.items['i1'] = FurnitureItem(
+        id: 'i1',
+        kind: FurnitureKind.stair,
+        pos: const Vec2(1, 1),
+        elevation: 0.3,
+      );
+      final raw = p.toJsonString();
+      expect(raw.contains('"el":0.3'), true, reason: 'JSON 键 el 应存在');
+      final it = FloorPlan.fromJsonString(raw).items['i1']!;
+      expect(it.elevation, closeTo(0.3, 1e-9));
+
+      // elevation=0 不写键（旧数据同形）；旧 JSON 解析默认 0
+      final zero = FurnitureItem(
+          id: 'i2', kind: FurnitureKind.stair, pos: const Vec2(0, 0));
+      expect(zero.toJson().containsKey('el'), false);
+      final legacy = FloorPlan.fromJsonString(jsonEncode({
+        'name': 't',
+        'walls': <dynamic>[],
+        'openings': <dynamic>[],
+        'items': [
+          {'id': 'i2', 'kind': 'stair', 'x': 0, 'y': 0, 'rot': 0}
+        ],
+      }));
+      expect(legacy.items['i2']!.elevation, 0);
+    });
   });
 
   group('editor: 物品改尺寸/旋转 + 开洞沿墙拖动', () {
@@ -152,6 +180,74 @@ void main() {
       final it = container.read(editorDocProvider).plan.items[iid]!;
       expect(it.footprint.$1, closeTo(1.5, 1e-3), reason: '宽应覆盖为 1.5m');
       expect(it.rotationDeg, closeTo(90, 1e-3), reason: '旋转应 +90°');
+    });
+
+    testWidgets('楼梯「离地高度」：仅楼梯显示，应用写回 elevation', (tester) async {
+      final (container, _) = await pumpEditorTall(tester);
+      await createRoom(tester);
+      final plan0 = container.read(editorDocProvider).plan;
+      var minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+      for (final w in plan0.walls.values) {
+        minX = math.min(minX, math.min(w.a.dx, w.b.dx));
+        maxX = math.max(maxX, math.max(w.a.dx, w.b.dx));
+        minY = math.min(minY, math.min(w.a.dy, w.b.dy));
+        maxY = math.max(maxY, w.b.dy);
+      }
+      final roomC = Vec2((minX + maxX) / 2, (minY + maxY) / 2);
+      final iid = plan0.newId('i');
+      container.read(editorDocProvider.notifier).mutate((p) {
+        p.items[iid] = FurnitureItem(
+          id: iid,
+          kind: FurnitureKind.stairR,
+          pos: roomC,
+        );
+      });
+      await tester.pump();
+      final cRect = tester.getRect(find.byKey(const ValueKey('cv')));
+      final pt = worldToCanvas(cRect, plan0, roomC) + cRect.topLeft;
+
+      await tester.tap(find.text('选择'));
+      await tester.pump();
+      await tester.tapAt(pt);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('改尺寸'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final elField = find.byWidgetPredicate(
+        (w) =>
+            w is TextField &&
+            (w.decoration as InputDecoration).labelText == '离地高度 (mm)',
+      );
+      expect(elField, findsOneWidget, reason: '楼梯应显示离地高度输入框');
+      await tester.enterText(elField, '300');
+      await tester.tap(find.text('应用'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        container.read(editorDocProvider).plan.items[iid]!.elevation,
+        closeTo(0.3, 1e-3),
+        reason: '离地高度应写回 0.3m',
+      );
+
+      // 非楼梯（餐桌）不显示离地高度
+      final tid = plan0.newId('i');
+      container.read(editorDocProvider.notifier).mutate((p) {
+        p.items[tid] = FurnitureItem(
+          id: tid,
+          kind: FurnitureKind.table,
+          pos: Vec2(minX + 0.8, minY + 0.8),
+        );
+      });
+      await tester.pump();
+      final tp = worldToCanvas(cRect, plan0, Vec2(minX + 0.8, minY + 0.8)) +
+          cRect.topLeft;
+      await tester.tapAt(tp);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('改尺寸'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(elField, findsNothing, reason: '非楼梯物品不应显示离地高度');
     });
 
     testWidgets('单击选开洞 → 操作条出现；沿墙拖动改 offset', (tester) async {

@@ -2125,6 +2125,7 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
   DoorType _dt = DoorType.single;
   bool _asWindow = false;
   bool _outSwing = false; // v0.1.18：开门方向（外开=true）
+  bool _hingeLeft = true; // v0.1.24：铰链侧（左开=true）
 
   @override
   void initState() {
@@ -2230,6 +2231,7 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
             ?
             _outSwing :
             false,
+        hingeLeft: _asWindow ? true : _hingeLeft,
       );
     });
     _msg('已加开洞');
@@ -2381,6 +2383,31 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
                 ],
               ),
             ),
+          if (!_asWindow &&
+              (_dt == DoorType.single || _dt == DoorType.double))
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Row(
+                children: [
+                  const Text(
+                    '铰链',
+                    style: TextStyle(color: JiajiaColors.text3, fontSize: 12),
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('左开', style: TextStyle(fontSize: 12)),
+                    selected: _hingeLeft,
+                    onSelected: (_) => setState(() => _hingeLeft = true),
+                  ),
+                  const SizedBox(width: 4),
+                  ChoiceChip(
+                    label: const Text('右开', style: TextStyle(fontSize: 12)),
+                    selected: !_hingeLeft,
+                    onSelected: (_) => setState(() => _hingeLeft = false),
+                  ),
+                ],
+              ),
+            ),
           const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2440,6 +2467,7 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
   late OpeningKind _kind;
   late DoorType _dt;
   late bool _outSwing; // v0.1.18：开门方向（外开=true，内开=false）
+  late bool _hingeLeft; // v0.1.24：铰链侧（左开=true）
 
   @override
   void initState() {
@@ -2449,6 +2477,7 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
       _kind = OpeningKind.door;
       _dt = DoorType.single;
       _outSwing = false;
+      _hingeLeft = true;
       _wC = TextEditingController(text: '900');
       _offC = TextEditingController(text: '450');
       _sillC = TextEditingController(text: '900');
@@ -2458,6 +2487,7 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
     _kind = o.kind;
     _dt = o.doorType;
     _outSwing = o.outSwing;
+    _hingeLeft = o.hingeLeft;
     _wC = TextEditingController(text: '${toMm(o.width)}');
     _offC = TextEditingController(text: '${toMm(o.offset)}');
     _sillC = TextEditingController(text: '${toMm(o.sill)}');
@@ -2538,6 +2568,7 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
             (_dt == DoorType.single || _dt == DoorType.double) ?
             _outSwing :
             false,
+        hingeLeft: _kind == OpeningKind.window ? true : _hingeLeft,
       );
     });
     _msg('开洞参数已更新');
@@ -2666,6 +2697,26 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Text(
+                    '铰链',
+                    style: TextStyle(color: JiajiaColors.text3, fontSize: 12),
+                  ),
+                  const SizedBox(width: 8),
+                  typeChip(
+                    '左开',
+                    _hingeLeft,
+                    () => setState(() => _hingeLeft = true),
+                  ),
+                  typeChip(
+                    '右开',
+                    !_hingeLeft,
+                    () => setState(() => _hingeLeft = false),
+                  ),
+                ],
+              ),
             ],
           ],
           const SizedBox(height: 12),
@@ -2735,7 +2786,14 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
   late final TextEditingController _wC;
   late final TextEditingController _dC;
   late final TextEditingController _hC;
+  late final TextEditingController _elC; // v0.1.24：楼梯离地高度（mm）
   late double _rot;
+
+  /// 楼梯类（模块·楼梯三种）：只有这些显示「离地高度」。
+  static bool _isStairKind(FurnitureKind k) =>
+      k == FurnitureKind.stair ||
+      k == FurnitureKind.stairL ||
+      k == FurnitureKind.stairR;
 
   @override
   void initState() {
@@ -2745,12 +2803,13 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
     _wC = TextEditingController(text: '${toMm(item?.sizeW ?? bw)}');
     _dC = TextEditingController(text: '${toMm(item?.sizeD ?? bd)}');
     _hC = TextEditingController(text: '${toMm(item?.sizeH ?? bh)}');
+    _elC = TextEditingController(text: '${toMm(item?.elevation ?? 0)}');
     _rot = item?.rotationDeg ?? 0;
   }
 
   @override
   void dispose() {
-    for (final c in [_wC, _dC, _hC]) {
+    for (final c in [_wC, _dC, _hC, _elC]) {
       c.dispose();
     }
     super.dispose();
@@ -2759,6 +2818,13 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
   int? _parseMm(TextEditingController f) {
     final v = int.tryParse(f.text.trim());
     if (v == null || v < 10) return null;
+    return v;
+  }
+
+  /// 离地高度允许 0（mm）。
+  int? _parseMm0(TextEditingController f) {
+    final v = int.tryParse(f.text.trim());
+    if (v == null || v < 0) return null;
     return v;
   }
 
@@ -2776,12 +2842,20 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
       _msg('尺寸需 ≥10mm 的整数（单位 mm）');
       return;
     }
+    final item = ref.read(editorDocProvider).plan.items[widget.itemId];
+    final isStair = item != null && _isStairKind(item.kind);
+    final elMm = isStair ? _parseMm0(_elC) : null;
+    if (isStair && elMm == null) {
+      _msg('离地高度需 ≥0 的整数（单位 mm）');
+      return;
+    }
     ref.read(editorDocProvider.notifier).mutate((p) {
       final it = p.items[widget.itemId];
       if (it == null) return;
       it.sizeW = fromMm(wMm);
       it.sizeD = fromMm(dMm);
       it.sizeH = fromMm(hMm);
+      if (isStair && elMm != null) it.elevation = fromMm(elMm);
       it.rotationDeg = _rot;
     });
     _msg('尺寸/旋转已更新');
@@ -2828,6 +2902,7 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
     final label = item.modelId == null
         ? FurnitureCatalog.labelOf(item.kind)
         : (ModelAssets.byId(item.modelId!)?.label ?? item.kind.name);
+    final isStair = _isStairKind(item.kind);
     // 坑⑤：sheet 内容必须 DraggableScrollableSheet（与 _WallDialog 同款）
     return DraggableScrollableSheet(
       expand: false,
@@ -2857,6 +2932,21 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
                   Expanded(child: _mmField('高', _hC)),
                 ],
               ),
+              // v0.1.24：楼梯整体底部离地高度（二楼/错层用）
+              if (isStair) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(child: _mmField('离地高度', _elC)),
+                    const Expanded(child: SizedBox()),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  '楼梯整体底部离地（mm），二楼/错层场景用；默认 0',
+                  style: TextStyle(color: JiajiaColors.text3, fontSize: 11),
+                ),
+              ],
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -3174,10 +3264,11 @@ class _PlanPainter extends CustomPainter {
               break;
 
             case DoorType.single:
-              // 铰链在 hA：门扇弧线（半径=宽），门扇画在开启 45° 位
-              _doorSwing(canvas, hA, u, n, oPx, oPx,
-                  side: swingSide, color: openColor);
-              _openLabel(canvas, hA - n * (halfT + 12), o, color: openColor);
+              // 铰链在左端 hA（左开）或右端 hB（右开）：门扇弧线（半径=宽）
+              _doorSwing(canvas, o.hingeLeft ? hA : hB, o.hingeLeft ? u : -u, n,
+                  oPx, oPx, side: swingSide, color: openColor);
+              _openLabel(canvas, (o.hingeLeft ? hA : hB) - n * (halfT + 12), o,
+                  color: openColor);
               break;
 
             case DoorType.double:

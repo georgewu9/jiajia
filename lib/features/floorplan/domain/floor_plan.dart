@@ -109,6 +109,8 @@ class Opening {
   double sill; // 窗台高（door 为 0）
   double height; // 开洞高（门高 / 窗高，sill+height 为窗顶）
   bool outSwing; // 外开门（false=内开，默认；仅单开/双开门有意义）
+  // v0.1.24：铰链侧（true=左开，false=右开；仅单开/双开门有意义，与内/外开正交）
+  bool hingeLeft;
 
   Opening({
     required this.id,
@@ -119,6 +121,7 @@ class Opening {
     this.sill = 0,
     this.doorType = DoorType.single,
     this.outSwing = false,
+    this.hingeLeft = true,
     double? height,
   }) : height =
            height ??
@@ -130,10 +133,10 @@ class Opening {
       final s = toMm(sill);
       return s > 0 ? '窗 $w×$h(台$s)' : '窗 $w×$h';
     }
-    final swing = doorType == DoorType.single || doorType == DoorType.double
-        ? (outSwing ? '外开' : '内开')
-        : '';
-    return '${doorType.label} $w×$h$swing';
+    final swings = doorType == DoorType.single || doorType == DoorType.double;
+    final swing = swings ? (outSwing ? '外开' : '内开') : '';
+    final hinge = swings ? '·${hingeLeft ? '左开' : '右开'}' : '';
+    return '${doorType.label} $w×$h$swing$hinge';
   }
 
   Map<String, dynamic> toJson() => {
@@ -146,6 +149,7 @@ class Opening {
     'sill': sill,
     'ht': height,
     'out': outSwing,
+    'hl': hingeLeft,
   };
 }
 
@@ -327,6 +331,8 @@ class FurnitureItem {
   final String? modelId; // 原 app 素材模型 id（OBJ/MTL，见 ModelAssets）；null=占位盒
   // v0.1.20：自定义尺寸（米，null=用目录/素材默认值；JSON 键 sw/sd/sh，旧数据宽容解析）
   double? sizeW, sizeD, sizeH;
+  // v0.1.24：整体离地高度（米，默认 0；楼梯用于二楼/错层，JSON 键 el）
+  double elevation;
 
   FurnitureItem({
     required this.id,
@@ -337,6 +343,7 @@ class FurnitureItem {
     this.sizeW,
     this.sizeD,
     this.sizeH,
+    this.elevation = 0,
   });
 
   /// 目录/素材默认占地（宽×深×高，米）。
@@ -366,6 +373,7 @@ class FurnitureItem {
     if (sizeW != null) 'sw': sizeW,
     if (sizeD != null) 'sd': sizeD,
     if (sizeH != null) 'sh': sizeH,
+    if (elevation != 0) 'el': elevation,
   };
 }
 
@@ -429,6 +437,8 @@ class FloorPlan {
         sill: (o['sill'] as num?)?.toDouble() ?? 0,
         height: (o['ht'] as num?)?.toDouble(), // null → 按 kind/dt 默认
         outSwing: o['out'] == true,
+        // 旧 JSON 无 hl 字段 → 左开（宽容解析）
+        hingeLeft: o['hl'] != false,
       );
       p._seq = p.maxSeq(p._seq, o['id'] as String, 'o');
     }
@@ -443,6 +453,8 @@ class FloorPlan {
         sizeW: (i['sw'] as num?)?.toDouble(),
         sizeD: (i['sd'] as num?)?.toDouble(),
         sizeH: (i['sh'] as num?)?.toDouble(),
+        // 旧 JSON 无 el 字段 → 离地 0
+        elevation: (i['el'] as num?)?.toDouble() ?? 0,
       );
       p._seq = p.maxSeq(p._seq, i['id'] as String, 'i');
     }
@@ -779,6 +791,8 @@ extension RoomOps on FloorPlan {
                 width: o.width,
                 sill: o.sill,
                 height: o.height,
+                outSwing: o.outSwing,
+                hingeLeft: o.hingeLeft,
               )
             : Opening(
                 id: o.id,
@@ -789,6 +803,8 @@ extension RoomOps on FloorPlan {
                 width: o.width,
                 sill: o.sill,
                 height: o.height,
+                outSwing: o.outSwing,
+                hingeLeft: o.hingeLeft,
               );
         openings[o.id] = o2;
       }

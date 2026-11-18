@@ -38,7 +38,7 @@ void main() {
       final o = p.openings['o1']!;
       expect(o.doorType, DoorType.single);
       expect(o.height, 2.0);
-      expect(o.label, '单开门 900×2000内开');
+      expect(o.label, '单开门 900×2000内开·左开');
     });
 
     test('v0.1.18 JSON 往返保留 outSwing（外开）；旧 JSON 默认内开', () {
@@ -57,12 +57,37 @@ void main() {
       final restored = FloorPlan.fromJsonString(p.toJsonString());
       final o = restored.openings['o1']!;
       expect(o.outSwing, true);
-      expect(o.label, '双开门 1800×2100外开');
+      expect(o.label, '双开门 1800×2100外开·左开');
 
       // 无 out 字段的旧 JSON → 内开
       final legacy = FloorPlan.fromJsonString(p.toJsonString()
           .replaceAll('"out":true', '"out":false'));
       expect(legacy.openings['o1']!.outSwing, false);
+    });
+
+    test('v0.1.24 铰链侧 hingeLeft：JSON 往返 + 旧 JSON 默认左开', () {
+      final p = FloorPlan();
+      p.walls['w1'] = Wall(id: 'w1', a: const Vec2(0, 0), b: const Vec2(3, 0));
+      p.openings['o1'] = Opening(
+        id: 'o1',
+        wallId: 'w1',
+        kind: OpeningKind.door,
+        doorType: DoorType.single,
+        offset: 0.5,
+        width: 0.9,
+        hingeLeft: false,
+      );
+      final raw = p.toJsonString();
+      expect(raw.contains('"hl":false'), true, reason: 'JSON 键 hl 应存在');
+      final o = FloorPlan.fromJsonString(raw).openings['o1']!;
+      expect(o.hingeLeft, false);
+      expect(o.label, '单开门 900×2000内开·右开');
+
+      // 旧 JSON（无 hl）→ 左开
+      final legacy = FloorPlan.fromJsonString(
+          raw.replaceAll(',"hl":false', ''));
+      expect(legacy.openings['o1']!.hingeLeft, true);
+      expect(legacy.openings['o1']!.label, '单开门 900×2000内开·左开');
     });
 
     test('门型默认值符合家易量习惯（mm）', () {

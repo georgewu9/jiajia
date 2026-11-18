@@ -199,5 +199,44 @@ void main() {
           reason: '宽度应更新为 1200mm');
       expect(opens.single.offset, closeTo(0.45, 1e-3), reason: '边距不变');
     });
+
+    testWidgets('双击开洞 → 铰链「右开」应用（hingeLeft=false）', (tester) async {
+      final (container, _) = await pumpEditorTall(tester);
+      await createRoom(tester);
+      await tester.tap(find.text('选择'));
+      await tester.pump();
+      await tester.tapAt(topWallCenter(tester));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('加开洞'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('加门'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      var opens = container.read(editorDocProvider).plan.openings.values.toList();
+      expect(opens, hasLength(1));
+      expect(opens.first.hingeLeft, true, reason: '默认左开');
+
+      final cRect = tester.getRect(find.byKey(const ValueKey('cv')));
+      final cw = cRect.width, ch = cRect.height;
+      final ppm = cw / 6 < ch / 5 ? cw / 6 : ch / 5;
+      final openPt = Offset(
+          cRect.center.dx - 2.1 * ppm, cRect.top + (ch - 5 * ppm) / 2);
+      await tester.tapAt(openPt);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tapAt(openPt);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('铰链'), findsOneWidget, reason: '单/双开应显示铰链行');
+      await tester.tap(find.text('右开'));
+      await tester.pump();
+      await tester.tap(find.text('应用'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      opens = container.read(editorDocProvider).plan.openings.values.toList();
+      expect(opens.single.hingeLeft, false, reason: '铰链应切到右开');
+      expect(opens.single.label, contains('右开'));
+    });
   });
 }
