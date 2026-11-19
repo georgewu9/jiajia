@@ -157,8 +157,8 @@ class ModelItems {
       place: ModelPlace.wall,
       kind: OpeningKind.door,
       doorType: DoorType.single,
-      defaultWmm: 670,
-      heightMm: 1210,
+      defaultWmm: 910,
+      heightMm: 2100,
       modelId: 'm_frontDoorDark',
     ),
     ModelSpec(
@@ -168,8 +168,8 @@ class ModelItems {
       place: ModelPlace.wall,
       kind: OpeningKind.door,
       doorType: DoorType.double,
-      defaultWmm: 1140,
-      heightMm: 1000,
+      defaultWmm: 910,
+      heightMm: 2100,
       modelId: 'm_frenchDoors',
     ),
     ModelSpec(

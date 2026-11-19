@@ -26,8 +26,8 @@ void main() {
     'm_door1': (0.91, 0.18, 2.14, 0x8A5A2B),
     'm_doorGlassPanels': (0.77, 0.11, 2.06, 0x4A90D9),
     'm_thick_double_2x4': (1.60, 0.23, 2.10, 0x7A5230),
-    'm_frontDoorDark': (0.67, 0.24, 1.21, 0x3A3A3A),
-    'm_frenchDoors': (1.14, 0.14, 1.00, 0x8A5A2B),
+    'm_frontDoorDark': (0.91, 0.24, 2.10, 0x3A3A3A),
+    'm_frenchDoors': (0.91, 0.14, 2.10, 0x8A5A2B),
     'm_window_deep': (1.05, 0.60, 1.50, 0x4A90D9),
     'm_window_double_sill': (1.23, 0.25, 1.10, 0x4A90D9),
   };
@@ -60,6 +60,31 @@ void main() {
       }
     });
 
+    test('入户大门/法式门缺省 910×2100（v0.1.35），其余 5 件不动', () {
+      ModelSpec byId(String id) => ModelItems.all.firstWhere((m) => m.id == id);
+      final fd = byId('m_frontDoorDark');
+      expect(fd.defaultWmm, 910);
+      expect(fd.heightMm, 2100);
+      expect(fd.doorType, DoorType.single);
+      expect(fd.specText.contains('910×2100'), true, reason: '面板规格文案');
+      final fr = byId('m_frenchDoors');
+      expect(fr.defaultWmm, 910);
+      expect(fr.heightMm, 2100);
+      expect(fr.doorType, DoorType.double);
+      expect(fr.specText.contains('910×2100'), true, reason: '面板规格文案');
+      // 其余 5 件规格禁止漂移（回归）
+      expect(byId('m_door1').defaultWmm, 910);
+      expect(byId('m_door1').heightMm, 2140);
+      expect(byId('m_doorGlassPanels').defaultWmm, 770);
+      expect(byId('m_doorGlassPanels').heightMm, 2060);
+      expect(byId('m_thick_double_2x4').defaultWmm, 1600);
+      expect(byId('m_thick_double_2x4').heightMm, 2100);
+      expect(byId('m_window_deep').defaultWmm, 1050);
+      expect(byId('m_window_deep').heightMm, 1500);
+      expect(byId('m_window_double_sill').defaultWmm, 1230);
+      expect(byId('m_window_double_sill').heightMm, 1100);
+    });
+
     test('assets/web/models_ext.js 含全部 7 个 key + 规格字段', () {
       final f = File('assets/web/models_ext.js');
       expect(f.existsSync(), true, reason: 'models_ext.js 必须随 assets/web/ 打包');
@@ -81,6 +106,16 @@ void main() {
       expect(js.contains('"c":${0x4A90D9}'), true);
       expect(js.contains('"c":${0x3A3A3A}'), true);
       expect(js.contains('"c":${0x7A5230}'), true);
+      // v0.1.35 F2：extGeometry 按规格 w/d/h 三轴 fit → JS 端 w/h 必须与 Dart 规格同步
+      // （改 Dart 不改这里 = 模型尺寸不变，等于白改）
+      expect(
+          js.contains(
+              '"m_frontDoorDark":{"n":"入户大门","cat":"门","w":0.91,"d":0.24,"h":2.10,'),
+          true);
+      expect(
+          js.contains(
+              '"m_frenchDoors":{"n":"法式门","cat":"门","w":0.91,"d":0.14,"h":2.10,'),
+          true);
       // OBJ 原文完整（door1 392934 字节，JS parseOBJ 无截断）
       expect(js.contains('m_door1'), true);
       expect(js.length > 700000, true);

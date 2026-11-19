@@ -107,6 +107,9 @@
   var lastPlan = null;
   var doorsDbg = [], windowsDbg = []; // 调试：门窗实体引用
   var extOpeningsDbg = []; // v0.1.34：洞口外部 CC0 门窗实模（Group，debugExtOpenings 用）
+  // v0.1.35：墙面切片登记（每段墙盒 Group）。调试探针 debugWallSlices/debugWallProbe 用；
+  // 只是登记引用，不改渲染。
+  var wallSlicesDbg = [];
 
   function post(msg) {
     if (window.dart && window.dart.postMessage) {
@@ -202,6 +205,16 @@
     return out;
   }
 
+  // v0.1.35：墙盒统一入口——登记到 wallSlicesDbg 再挂 root（渲染不变）。
+  // role: 'solid' 整段墙 / 'below' 窗台下实墙 / 'lintel' 过梁段（洞口顶→墙顶）。
+  function addWallSlice(g, role) {
+    g.userData = g.userData || {};
+    g.userData.wallSlice = role;
+    wallSlicesDbg.push(g);
+    root.add(g);
+    return g;
+  }
+
   function buildWalls(plan) {
     plan.walls.forEach(function (w) {
       var ax = w.ax, ay = w.ay, bx = w.bx, by = w.by;
@@ -226,25 +239,32 @@
           box.position.copy(w2v(mx, my));
           box.position.y = hh / 2;
           box.rotation.y = -ang;
-          root.add(box);
+          addWallSlice(box, 'solid');
         } else if (kind.kind === 'door') {
-          // 门洞：上方过梁（墙高 >2.1m 才有）+ 门扇
-          if (hh > 2.15) {
-            var lintel = wallBox(segLen, hh - 2.1, th, COL.wall);
+          // 门洞：上方过梁 + 门扇
+          // v0.1.35：过梁起点改用「洞口顶」。挂实模时 = 洞高（ht，如 2.06/2.14），
+          // 否则旧实现固定 2.1 起 → 实模门顶到 2.1 之间会漏一条缝且过梁高度算错。
+          // 未挂实模：仍沿用 2.1m 起 + 墙高 >2.15 才画的旧行为（回归不变）。
+          var extM = kind.m ? extSource(kind.m) : null;
+          var extG = extM ? extGeometry(kind.m) : null;
+          var dTop = extG
+              ? Math.min(hh, (kind.sill || 0) + (kind.ht || 2.1))
+              : 2.1;
+          if (hh - dTop > 0.005) {
+            var lintel = wallBox(segLen, hh - dTop, th, COL.wall);
             lintel.position.copy(w2v(mx, my));
-            lintel.position.y = 2.1 + (hh - 2.1) / 2;
+            lintel.position.y = dTop + (hh - dTop) / 2;
             lintel.rotation.y = -ang;
-            root.add(lintel);
+            addWallSlice(lintel, 'lintel');
           }
           // v0.1.18 门扇：单开整宽、双开两端各半宽；铰链在开洞端部，
           // 90° 张开——内开朝法向内侧（side=1）、外开朝外侧（side=-1）
           // v0.1.34：洞口挂了外部 CC0 门窗模型（Opening.m）→ 用 OBJ 实模替换通用门扇。
           // 未挂模型 / 模型表缺失（旧包）→ 保持原通用门扇逻辑不变。
-          var extM = kind.m ? extSource(kind.m) : null;
-          var extG = extM ? extGeometry(kind.m) : null;
           if (extG) {
             root.add(openingModel(kind.m, extM, extG, segLen,
-                kind.ht || 2.05, kind.sill || 0, mx, my, ang));
+                Math.min(kind.ht || 2.05, hh - (kind.sill || 0)),
+                kind.sill || 0, mx, my, ang));
           } else if (kind.dt === 'single' || kind.dt === 'double') {
             // 门框（深灰 #333）：门洞两侧 + 门头
             var dFrame = frameGroup(segLen, 0, Math.min(2.1, hh), th, COL.frame);
@@ -284,21 +304,37 @@
             }
           }
         } else if (kind.kind === 'window') {
-          // 窗：窗台下实墙 + 玻璃
-          var sill = kind.sill || 0.9;
-          var below = wallBox(segLen, sill, th, COL.wall);
-          below.position.copy(w2v(mx, my));
-          below.position.y = sill / 2;
-          below.rotation.y = -ang;
-          root.add(below);
-          var glassH = hh - sill;
-          // v0.1.34：洞口挂外部 CC0 窗模型 → 用 OBJ 实模替换通用窗框+玻璃（窗台下实墙保留）
+          // 窗：墙面切片三段齐全（台下 / 过梁 / 两侧 solid 段）+ 洞内几何（通用玻璃 或 实模）
+          // v0.1.35 修复（用户截图「3D 墙上部缺口」）：旧实现玻璃高度用 hh-sill 一路撑到墙顶，
+          // 挂实模时实模只占 sill..sill+ht（如 0.9..2.2）→ 洞口顶到墙顶的过梁段整段没画，
+          // 墙上出现一个方形缺口。现在统一按洞口矩形（sill → sill+ht）算洞内几何，
+          // 洞口顶以上一律补过梁切片；挂 m 只是把洞内玻璃换成 OBJ 实模。
+          var sill = (kind.sill == null) ? 0.9 : kind.sill;
           var wExt = kind.m ? extSource(kind.m) : null;
           var wG = wExt ? extGeometry(kind.m) : null;
+          var opTop = Math.min(hh, sill + (kind.ht || (hh - sill)));
+          var rectH = Math.max(0, opTop - sill);
+          // 台下实墙（sill>0 才画，窗台高 0 时不该有矮墙）
+          if (sill > 0.005) {
+            var below = wallBox(segLen, sill, th, COL.wall);
+            below.position.copy(w2v(mx, my));
+            below.position.y = sill / 2;
+            below.rotation.y = -ang;
+            addWallSlice(below, 'below');
+          }
+          // 过梁段（洞口顶 → 墙顶）
+          if (hh - opTop > 0.005) {
+            var lintel = wallBox(segLen, hh - opTop, th, COL.wall);
+            lintel.position.copy(w2v(mx, my));
+            lintel.position.y = opTop + (hh - opTop) / 2;
+            lintel.rotation.y = -ang;
+            addWallSlice(lintel, 'lintel');
+          }
           if (wG) {
-            root.add(openingModel(kind.m, wExt, wG, segLen,
-                kind.ht || glassH, sill, mx, my, ang));
+            root.add(openingModel(kind.m, wExt, wG, segLen, rectH, sill, mx, my, ang));
           } else {
+            // 未挂实模：通用窗框 + 玻璃（尺寸=洞口矩形；旧实现是撑到墙顶，见上）
+            var glassH = Math.max(0.05, rectH);
             // 窗框（深灰 #333）：窗洞四周
             var wFrame = frameGroup(segLen, sill, glassH, th, COL.frame);
             wFrame.position.copy(w2v(mx, my));
@@ -989,7 +1025,7 @@
 
   function applyPlan(jsonStr) {
     clearRoot();
-    doorsDbg = []; windowsDbg = []; extOpeningsDbg = [];
+    doorsDbg = []; windowsDbg = []; extOpeningsDbg = []; wallSlicesDbg = [];
     var plan = JSON.parse(jsonStr);
     lastPlan = plan;
     var b = boundsOf(plan);
@@ -1076,6 +1112,37 @@
                  meshes: meshes, verts: verts,
                  size: [+sz.x.toFixed(3), +sz.y.toFixed(3), +sz.z.toFixed(3)] };
       });
+    },
+    // v0.1.35：墙面切片探针（世界 bbox + 角色）。验证开洞上方过梁/台下段是否成片。
+    debugWallSlices: function () {
+      return wallSlicesDbg.map(function (g) {
+        var b = new THREE.Box3().setFromObject(g);
+        return { role: (g.userData && g.userData.wallSlice) || '?',
+          min: [+b.min.x.toFixed(3), +b.min.y.toFixed(3), +b.min.z.toFixed(3)],
+          max: [+b.max.x.toFixed(3), +b.max.y.toFixed(3), +b.max.z.toFixed(3)] };
+      });
+    },
+    // v0.1.35：采样点射线探针——从 (x,y,z) 沿 dir（默认 +z，反推 3m 起射）
+    // 只打墙面切片的 mesh（不含 EdgesGeometry 线框：Line 的 raycast threshold
+    // 默认 1m，会把相邻墙段的描边也算命中 → 误判成「洞上方有实墙」）。
+    debugWallProbe: function (x, y, z, dir) {
+      var d = dir || [0, 0, 1];
+      var vec = new THREE.Vector3(d[0], d[1], d[2]).normalize();
+      var origin = new THREE.Vector3(x, y, z)
+          .sub(vec.clone().multiplyScalar(3));
+      var rc = new THREE.Raycaster(origin, vec, 0, 6);
+      rc.params.Line.threshold = 0;
+      var meshes = [];
+      wallSlicesDbg.forEach(function (g) {
+        g.children.forEach(function (c) { if (c.isMesh) meshes.push(c); });
+      });
+      var hits = rc.intersectObjects(meshes, false);
+      return { hit: hits.length > 0, count: hits.length,
+        role: hits.length ? (hits[0].object.parent &&
+          hits[0].object.parent.userData &&
+          hits[0].object.parent.userData.wallSlice) || null : null,
+        point: hits.length ? [+hits[0].point.x.toFixed(3),
+          +hits[0].point.y.toFixed(3), +hits[0].point.z.toFixed(3)] : null };
     },
     // v0.1.34：OBJ 文本解析统计（复用 viewer 内 parseOBJ；验证面数/字符数不被截断）
     modelStats: function (mid) {
