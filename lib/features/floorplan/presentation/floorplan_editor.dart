@@ -1009,6 +1009,9 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     if (k == null) return;
     final libId = k == FurnitureKind.lib ? _pendingLib : null;
     final dims = libId == null ? null : _pendingLibDims;
+    // v0.1.32：柜类挂原 app 素材模型（真几何）；尺寸按柜类目标尺寸覆盖，
+    // 2D 仍画占地框、3D 走 JJ_MODELS fit。
+    final cab = FurnitureCatalog.cabinetModel[k];
     final notifier = ref.read(editorDocProvider.notifier);
     final world = _cam.toWorld(local);
     final fid = plan.newId('i');
@@ -1017,11 +1020,12 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
         id: fid,
         kind: k,
         pos: _snapPoint(world, plan),
+        modelId: libId == null ? cab?.$1 : null,
         // 库模型：记 lib id + 库尺寸（用户双击可改）；其它 kind 保持默认尺寸
         lib: libId,
-        sizeW: dims?.$1,
-        sizeD: dims?.$2,
-        sizeH: dims?.$3,
+        sizeW: libId == null ? cab?.$2 : dims?.$1,
+        sizeD: libId == null ? cab?.$3 : dims?.$2,
+        sizeH: libId == null ? cab?.$4 : dims?.$3,
       );
       _sel = _Sel(fid, 'item');
     });

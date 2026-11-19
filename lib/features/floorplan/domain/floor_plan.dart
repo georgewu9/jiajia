@@ -270,6 +270,18 @@ class FurnitureCatalog {
     FurnitureKind.lib: (1.0, 0.6, 1.0, 0x8F8F8F),
   };
 
+  /// v0.1.32：家具 tab 放置柜类时默认挂的原 app 素材模型（OBJ 真几何）。
+  /// 只影响 _placeKindItem（家具 tab）；「画房模型」模块的 ModelSpec 路径不读此表。
+  /// 值 = (模型 id, 目标宽, 目标深, 目标高)：5005/5006 是 1.47×2.06 的深柜体，
+  /// 直接按模型 bbox 放置太占房间，故用柜类自身尺寸覆盖；1007 大衣柜用原生尺寸。
+  static const Map<FurnitureKind, (String, double, double, double)>
+      cabinetModel = {
+    FurnitureKind.wardrobe: ('1007', 1.84, 0.62, 1.98),
+    FurnitureKind.shelf: ('5005', 1.0, 0.4, 1.9),
+    FurnitureKind.shoe: ('5006', 0.9, 0.4, 1.1),
+    FurnitureKind.tv: ('5005', 1.4, 0.4, 0.5),
+  };
+
   /// 家具工具栏可选种类（不含素材模型 asset —— 走「素材」入口）。
   static const List<FurnitureKind> kinds = [
     FurnitureKind.sofa,

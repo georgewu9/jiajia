@@ -333,6 +333,16 @@
     return { verts: verts, groups: groups, mats: mats };
   }
 
+  // v0.1.32：mc 里的颜色既可能是 '#FFFFFF' 也可能是 '0xFFFFFF'（models.js 用 0x 前缀），
+  // 统一解析；解析失败退回模型主色，避免 NaN 颜色导致整件模型渲染成黑色。
+  function parseHexColor(v, fallback) {
+    if (v == null) return fallback;
+    if (typeof v === 'number') return isFinite(v) ? v : fallback;
+    var s = String(v).trim().replace(/^#/, '').replace(/^0x/i, '');
+    var n = parseInt(s, 16);
+    return isFinite(n) ? n : fallback;
+  }
+
   var modelCache = {};
   function modelGeometry(mid) {
     if (modelCache[mid]) return modelCache[mid];
@@ -353,7 +363,7 @@
       }
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       geo.computeVertexNormals();
-      var col = mc[matName] != null ? parseInt(mc[matName].slice(1), 16) : model.c;
+      var col = parseHexColor(mc[matName], model.c);
       meshes.push(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
         color: col, side: THREE.DoubleSide })));
     }
@@ -512,6 +522,151 @@
     return cyl;
   }
 
+  // ---------- v0.1.32：程序化家具（亮色建筑风盒子组合） ----------
+  // 设计基准取 item 当前 w/d/h（米），子件按比例排布；建完统一按包围盒
+  // fit 到 w/d/h（scale），保证双击改尺寸后整体等比缩放、底面落在 y=0。
+  // 材质一律 clone 后涂色，不改共享/缓存材质（同栏杆先例）。
+  var FURN_COL = {
+    wood: 0xc9a86a,   // 浅木
+    wood2: 0xa8896a,  // 深木
+    white: 0xffffff,  // 床垫/家电白
+    grey: 0xd8d8d8,   // 布面/灰
+    metal: 0x8b93a5,  // 金属件
+    dark: 0x333333,   // 门缝/细黑线
+    glass: 0x99cde6,  // 玻璃门（半透明）
+    linen: 0xdcdcdc   // 枕头/坐垫浅灰（白床垫上要能看出分层）
+  };
+
+  function buildProcedural(kind, w, d, h, mat) {
+    var kinds = ['bed', 'sofa', 'table', 'coffee', 'desk', 'chair',
+                 'stool', 'fridge', 'washer'];
+    if (kinds.indexOf(kind) < 0) return null;
+    var g = new THREE.Group();
+    function pm(hex, opts) {
+      var m = mat.clone();
+      m.color.setHex(hex);
+      if (opts) {
+        if (opts.transparent != null) m.transparent = opts.transparent;
+        if (opts.opacity != null) m.opacity = opts.opacity;
+        if (opts.roughness != null) m.roughness = opts.roughness;
+      }
+      return m;
+    }
+    function box(bw, bh, bd, x, y, z, m) {
+      var mesh = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), m);
+      mesh.position.set(x, y, z);
+      g.add(mesh);
+      return mesh;
+    }
+    function cyl(r, hh, x, y, z, m, seg) {
+      var mesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(r, r, hh, seg || 20), m);
+      mesh.position.set(x, y, z);
+      g.add(mesh);
+      return mesh;
+    }
+
+    if (kind === 'bed') {
+      // 床架 + 床垫（白）+ 2 枕头 + 床头板；床垫顶 ≈ 0.5h，床头板到 h
+      box(w * 0.97, h * 0.18, d * 0.94, 0, h * 0.09, 0, pm(FURN_COL.wood2));
+      box(w * 0.92, h * 0.32, d * 0.84, 0, h * 0.34, 0, pm(FURN_COL.white));
+      box(w, h, d * 0.04, 0, h * 0.5, -d * 0.48, pm(FURN_COL.wood));
+      var pw = w * 0.36, pd = d * 0.14, ph = h * 0.11;
+      box(pw, ph, pd, -w * 0.21, h * 0.55, -d * 0.31, pm(FURN_COL.linen));
+      box(pw, ph, pd, w * 0.21, h * 0.55, -d * 0.31, pm(FURN_COL.linen));
+    } else if (kind === 'sofa') {
+      // 坐垫 + 靠背 + 2 扶手 + 4 短脚（宽度自适应 0.7/1.0/1.3）
+      var legH = h * 0.12, baseH = h * 0.25;
+      var lx = w * 0.42, lz = d * 0.36;
+      [[-lx, -lz], [lx, -lz], [-lx, lz], [lx, lz]].forEach(function (p) {
+        box(w * 0.06, legH, d * 0.05, p[0], legH / 2, p[1], pm(FURN_COL.wood2));
+      });
+      box(w * 0.96, baseH, d * 0.92, 0, legH + baseH / 2, 0, pm(FURN_COL.grey));
+      var seatTop = legH + baseH;
+      box(w * 0.62, h * 0.14, d * 0.62, 0, seatTop + h * 0.07, d * 0.02,
+          pm(FURN_COL.white));
+      box(w * 0.96, h * 0.52, d * 0.16, 0, seatTop + h * 0.26, -d * 0.42,
+          pm(FURN_COL.grey));
+      box(w * 0.12, h * 0.50, d * 0.92, -w * 0.42, legH + h * 0.25, 0,
+          pm(FURN_COL.grey));
+      box(w * 0.12, h * 0.50, d * 0.92, w * 0.42, legH + h * 0.25, 0,
+          pm(FURN_COL.grey));
+    } else if (kind === 'table' || kind === 'coffee' || kind === 'desk') {
+      // 桌面 + 4 腿；desk 加一块背侧挡板（示意）
+      var topH = h * 0.08, legT = Math.max(0.03, w * 0.055);
+      box(w, topH, d, 0, h - topH / 2, 0, pm(FURN_COL.wood));
+      var legH2 = h - topH, ox = w * 0.5 - legT * 1.4,
+          oz = d * 0.5 - legT * 1.4;
+      [[-ox, -oz], [ox, -oz], [-ox, oz], [ox, oz]].forEach(function (p) {
+        box(legT, legH2, legT, p[0], legH2 / 2, p[1], pm(FURN_COL.wood2));
+      });
+      if (kind === 'desk') {
+        box(w * 0.78, h * 0.42, Math.max(0.02, d * 0.05),
+            0, h * 0.52, -d * 0.30, pm(FURN_COL.wood2));
+      }
+    } else if (kind === 'chair') {
+      // 座面 + 靠背 + 4 腿
+      var chLeg = h * 0.45, chSeat = h * 0.08, ct = Math.max(0.025, w * 0.08);
+      box(w * 0.95, chSeat, d * 0.95, 0, chLeg + chSeat / 2, 0,
+          pm(FURN_COL.wood));
+      box(w * 0.95, h * 0.45, d * 0.09, 0, chLeg + chSeat + h * 0.225,
+          -d * 0.44, pm(FURN_COL.wood2));
+      [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(function (s) {
+        box(ct, chLeg, ct, s[0] * (w * 0.42), chLeg / 2, s[1] * (d * 0.40),
+            pm(FURN_COL.wood2));
+      });
+    } else if (kind === 'stool') {
+      // 圆台面 + 4 条斜撑腿
+      var r = Math.min(w, d) * 0.5, topT = h * 0.12, legs = h * 0.88;
+      cyl(r, topT, 0, h - topT / 2, 0, pm(FURN_COL.wood), 24);
+      for (var si = 0; si < 4; si++) {
+        var ang = Math.PI / 4 + si * Math.PI / 2;
+        var lx2 = Math.cos(ang) * r * 0.58, lz2 = Math.sin(ang) * r * 0.58;
+        var leg = cyl(Math.max(0.015, r * 0.07), legs, lx2, legs / 2, lz2,
+                      pm(FURN_COL.wood2), 10);
+        leg.rotation.z = -Math.cos(ang) * 0.10;
+        leg.rotation.x = Math.sin(ang) * 0.10;
+      }
+    } else if (kind === 'fridge') {
+      // 高柜体（白）+ 2 条横向门缝 + 右侧竖拉手
+      var fw = w * 0.96, fd = d * 0.92, fh = h * 0.99;
+      box(fw, fh, fd, 0, fh / 2, 0, pm(FURN_COL.white));
+      box(fw * 0.98, Math.max(0.012, h * 0.007), Math.max(0.012, d * 0.02),
+          0, h * 0.62, fd / 2, pm(FURN_COL.dark));
+      box(fw * 0.98, Math.max(0.012, h * 0.007), Math.max(0.012, d * 0.02),
+          0, h * 0.30, fd / 2, pm(FURN_COL.dark));
+      box(Math.max(0.025, w * 0.05), h * 0.18, Math.max(0.02, d * 0.04),
+          fw / 2 - w * 0.06, h * 0.45, fd / 2 + d * 0.01,
+          pm(FURN_COL.metal));
+    } else if (kind === 'washer') {
+      // 矮柜体（白）+ 圆形玻璃门 + 顶部控制面板条
+      var ww = w * 0.96, wd = d * 0.92, wh = h * 0.96;
+      box(ww, wh, wd, 0, wh / 2, 0, pm(FURN_COL.white));
+      var dr = Math.min(w, d) * 0.30;
+      var door = cyl(dr, Math.max(0.02, d * 0.04), 0, h * 0.45, wd / 2,
+                     pm(FURN_COL.glass, { transparent: true, opacity: 0.55,
+                                          roughness: 0.25 }), 28);
+      door.rotation.x = Math.PI / 2;
+      box(ww * 0.90, Math.max(0.05, h * 0.08), Math.max(0.02, d * 0.05),
+          0, h * 0.86, wd / 2 - d * 0.01, pm(FURN_COL.grey));
+    } else {
+      return null;
+    }
+
+    // 整体 fit 到 w/d/h（等比 3 轴拉伸到目标盒），底面 y=0、xz 居中
+    var bb = new THREE.Box3().setFromObject(g);
+    var sz = bb.getSize(new THREE.Vector3());
+    var outer = new THREE.Group();
+    outer.add(g);
+    g.scale.set(w / Math.max(sz.x, 1e-6), h / Math.max(sz.y, 1e-6),
+                d / Math.max(sz.z, 1e-6));
+    g.updateMatrixWorld(true);
+    bb = new THREE.Box3().setFromObject(g);
+    var c = bb.getCenter(new THREE.Vector3());
+    g.position.set(-c.x, -bb.min.y, -c.z);
+    return outer;
+  }
+
   function buildItems(plan) {
     plan.items.forEach(function (i) {
       // v0.1.20：自定义尺寸（米）→ 目录盒/模型等比缩放
@@ -608,6 +763,17 @@
         var cyl = buildCylinder(bw, bd, bh, spec[3], i.x, i.y, i.rot || 0);
         cyl.userData = { id: i.id, kind: i.kind };
         root.add(cyl);
+        return;
+      }
+      // v0.1.32：核心家具 → 程序化几何（床/沙发/桌/椅/凳/冰箱/洗衣机），
+      // 不再落到下面单盒分支；i.model / i.lib 已在上面优先处理。
+      var proc = buildProcedural(i.kind, bw, bd, bh,
+          new THREE.MeshStandardMaterial({ color: spec[3] }));
+      if (proc) {
+        proc.position.set(i.x, i.el || 0, i.y);
+        proc.rotation.y = -((i.rot || 0) * Math.PI / 180);
+        proc.userData = { id: i.id, kind: i.kind };
+        root.add(proc);
         return;
       }
       var box = new THREE.Mesh(
