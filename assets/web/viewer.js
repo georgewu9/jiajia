@@ -225,14 +225,26 @@
       var th = w.t || 0.24;
       var hh = w.h || 2.8;
 
-      wallAABB.push({ ax: ax, ay: ay, bx: bx, by: by, r: th / 2 + 0.35 });
-
       wallSegments(w, plan).forEach(function (seg) {
         var t0 = seg[0], t1 = seg[1], kind = seg[2];
         var segLen = len * (t1 - t0);
         if (segLen < 1e-4) return;
         var mx = ax + dx * ((t0 + t1) / 2);
         var my = ay + dy * ((t0 + t1) / 2);
+
+        // v0.1.39 第一视角碰撞：按开洞分段登记碰撞线段。
+        // 旧实现把整条墙线推进 wallAABB（不看 openings）→ 门洞在 3D 里是空的，
+        // 碰撞层仍是实心墙，第一视角走到门洞被「隐形墙」挡住。
+        // solid 段 / window 段都挡人（窗台下实墙 + 过梁在竖向封死整面墙，
+        // 人不能穿窗，水平上按实墙算）；door 门洞不登记——门扇/实模门一律
+        // 不加碰撞（用户拍板：门洞可通行）。
+        if (kind === 'solid' || kind.kind === 'window') {
+          wallAABB.push({
+            ax: ax + dx * t0, ay: ay + dy * t0,
+            bx: ax + dx * t1, by: ay + dy * t1,
+            r: th / 2 + 0.35
+          });
+        }
 
         if (kind === 'solid') {
           var box = wallBox(segLen, hh, th, COL.wall);
@@ -1208,6 +1220,22 @@
         mini: vis('mini'), panel: vis('fpanel'), dpad: vis('dpad'),
         joy: vis('joy'), move: [moveVec.x, moveVec.z]
       };
+    },
+    // v0.1.39 调试探针：把第一视角玩家放到 (x,z)、朝向 yaw（第一视角碰撞
+    // 自动化验证用；不改任何渲染/交互逻辑，仅写 fpPos/fpYaw）
+    debugPlace: function (x, z, yaw) {
+      fpPos.x = x; fpPos.z = z; fpPos.y = fpEye;
+      if (typeof yaw === 'number') fpYaw = yaw;
+      camera.position.copy(fpPos);
+      return [+fpPos.x.toFixed(3), +fpPos.z.toFixed(3), +fpYaw.toFixed(3)];
+    },
+    // v0.1.39 调试探针：第一视角碰撞线段表（验证门洞不登记、窗段与实墙登记）
+    debugWallAABB: function () {
+      return wallAABB.map(function (s) {
+        return { ax: +s.ax.toFixed(3), ay: +s.ay.toFixed(3),
+                 bx: +s.bx.toFixed(3), by: +s.by.toFixed(3),
+                 r: +s.r.toFixed(3) };
+      });
     }
   };
 
