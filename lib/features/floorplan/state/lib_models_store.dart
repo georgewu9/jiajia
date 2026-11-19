@@ -21,6 +21,7 @@ import 'package:path_provider/path_provider.dart';
 import '../domain/floor_plan.dart';
 import '../domain/model_leaves.dart';
 import '../domain/obj_parse.dart';
+import '../domain/silhouette.dart';
 
 /// 一个库模型（OBJ 文本 + 展示/摆放尺寸）。
 class LibModel {
@@ -46,6 +47,11 @@ class LibModel {
   /// 原始 OBJ 文本（3D 端 parseOBJ 直接吃）。
   final String objText;
 
+  /// 2D 俯视轮廓（P2）：导入/导出时用 Dart 算法（[ModelSilhouette.fromObjText]）
+  /// 算好存下，0..1 归一化，与内置件 model_silhouettes 同 schema。
+  /// 旧文件没有 / 形状坏 → null（2D 回落 RRect，不崩；下次导出/导入会补算）。
+  final ModelSilhouette? sil;
+
   const LibModel({
     required this.id,
     required this.name,
@@ -56,6 +62,7 @@ class LibModel {
     required this.hM,
     this.color = 0x8FB7D6,
     required this.objText,
+    this.sil,
   });
 
   /// 由 OBJ 文本生成稳定 id：md5 前 10 位（同文件重复导入 → 同 id → 跳过）。
@@ -80,7 +87,13 @@ class LibModel {
     return s.length > 16 ? s.substring(0, 16) : s;
   }
 
-  LibModel copyWith({String? name, String? cat, String? subCat, int? color}) =>
+  LibModel copyWith({
+    String? name,
+    String? cat,
+    String? subCat,
+    int? color,
+    ModelSilhouette? sil,
+  }) =>
       LibModel(
         id: id,
         name: name ?? this.name,
@@ -91,7 +104,16 @@ class LibModel {
         hM: hM,
         color: color ?? this.color,
         objText: objText,
+        sil: sil ?? this.sil,
       );
+
+  /// 有轮廓就原样返回；没有就用 objText 现算一份（失败 → 原样，sil 仍 null）。
+  /// 导入/导出链路的补算入口：算一次随条目落盘，之后 2D 直接读。
+  LibModel withSilhouette() {
+    if (sil != null) return this;
+    final s = ModelSilhouette.tryFromObjText(objText);
+    return s == null ? this : copyWith(sil: s);
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -103,6 +125,8 @@ class LibModel {
     'hM': hM,
     'color': color,
     'objText': objText,
+    // 旧消费者不认识 sil 也不影响（多一个键而已）；没算过就不写空对象。
+    if (sil != null) 'sil': sil!.toJson(),
   };
 
   /// 宽容解析单条：id/name/objText 缺失 → null（跳过该条）；
@@ -150,6 +174,18 @@ class LibModel {
         ? colorRaw.toInt()
         : ModelLeaves.defaultColor(id);
 
+    // 2D 轮廓：宽容解析，缺失/坏形状 → null（不在这里现算：load 一次可能几十条，
+    // 每条几十 ms 会卡启动；补算只发生在导入闸后与导出时）。
+    ModelSilhouette? sil;
+    final silRaw = j['sil'];
+    if (silRaw is Map) {
+      try {
+        sil = ModelSilhouette.fromJson(Map<String, dynamic>.from(silRaw));
+      } catch (_) {
+        sil = null;
+      }
+    }
+
     return LibModel(
       id: id,
       name: name,
@@ -161,6 +197,7 @@ class LibModel {
       hM: pick(j['hM'], bbox?.bboxH ?? 0, 1.0),
       color: color,
       objText: obj,
+      sil: sil,
     );
   }
 }
@@ -256,6 +293,8 @@ class LibModelsStore {
   }
 
   /// 合并导入：id 重复 → 跳过计数；同名同分类 → 加 (1)。规则同 PlanIo 重名。
+  /// 导入是轮廓补算的唯一闸口：条目自带 sil → 原样保留（不被重算覆盖）；
+  /// 旧文件没带 → 这里用 [LibModel.withSilhouette] 现算（失败留 null，仍可入库）。
   static LibMergeResult merge(
     List<LibModel> existing,
     List<LibModel> incoming,
@@ -268,7 +307,7 @@ class LibModelsStore {
         skipped++;
         continue;
       }
-      out.add(m.copyWith(name: uniqueName(out, m.name, m.cat)));
+      out.add(m.withSilhouette().copyWith(name: uniqueName(out, m.name, m.cat)));
       added++;
     }
     return LibMergeResult(models: out, added: added, skipped: skipped);
@@ -327,12 +366,13 @@ class LibModelsCodec {
   const LibModelsCodec._();
 
   /// 导出信封：`{app:'jiajia', type:'modelLib', version:1, exportedAt, models:[...]}`。
+  /// 每条带 `sil`（旧条目没算过 → 导出时现算；算不出就不写，导入端会再试）。
   static String encodeExport(List<LibModel> models) => jsonEncode({
     'app': 'jiajia',
     'type': 'modelLib',
     'version': 1,
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
-    'models': models.map((m) => m.toJson()).toList(),
+    'models': [for (final m in models) m.withSilhouette().toJson()],
   });
 
   /// 导入解析：type 必须为 modelLib；逐条 schema（id/name/cat/objText 必有）

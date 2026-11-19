@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
@@ -13,6 +14,7 @@ import '../domain/furniture_tabs.dart';
 import '../domain/model_assets.dart';
 import '../domain/model_items.dart';
 import '../domain/model_leaves.dart';
+import '../domain/model_silhouettes.dart';
 import '../domain/obj_parse.dart';
 import '../state/editor_doc.dart';
 import '../state/lib_models_store.dart';
@@ -107,6 +109,11 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   static const bool _showAreas = true; // 面积标注（v0.1.17 起无开关入口，默认常显）
   String _roomsSig = '';
   List<RoomLoop> _rooms = const [];
+
+  /// 用户模型库条目缓存（P2）：画家同步绘制，不能等 IO；`library.id → 条目`
+  /// 里带着 2D 轮廓 `sil`。由 [_warmLibModels]/[_reloadLibModels] 沿现有
+  /// LibModelsStore 通道刷新，导入/放置后立即重读，不放全局状态。
+  List<LibModel> _libModels = const <LibModel>[];
   ModelSpec? _pendingModel; // 「模型」面板选中的待放置项（门/窗贴墙，柱/楼梯/台面摆地）
   FurnitureKind? _pendingKind; // 「家具」抽屉选中的待放置家具种类（点画布放下 → 回选择）
   String? _pendingLib; // kind=lib 时待放置的库模型 id（同一条放置路径，仅多带 lib）
@@ -120,22 +127,53 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   void initState() {
     super.initState();
     bootLog.line('editor-init');
-    _warmLibNames();
+    _warmLibModels();
   }
 
-  /// 预热模型库名字缓存：2D 标注/操作条要显库模型名字（同步绘制，不能等 IO）。
-  /// 库文件缺失/平台不可用 → 静默忽略，2D 回退「库模型」。
-  Future<void> _warmLibNames() async {
+  /// 预热模型库：名字缓存（2D 标注/操作条） + 条目缓存（P2 轮廓要读 `sil`）。
+  /// 库文件缺失/平台不可用 → 静默忽略，2D 回退「库模型」/RRect。
+  Future<void> _warmLibModels() async {
+    await _reloadLibModels(notify: false);
+    if (mounted) setState(() {});
+  }
+
+  /// 重读模型库条目（导入/放置后调）。[notify]=false 用于 initState 预热。
+  Future<void> _reloadLibModels({bool notify = true}) async {
+    List<LibModel> out;
     try {
-      await _libStore.load();
+      out = await _libStore.load();
     } catch (_) {
+      out = const <LibModel>[];
+    }
+    if (!mounted) return;
+    if (notify) {
+      setState(() => _libModels = out);
+    } else {
+      _libModels = out;
+    }
+  }
+
+  /// 单条 upsert：刚导入/刚放置的条目不必等整库重读就能画轮廓。
+  void _rememberLibModel(LibModel m) {
+    final next = [
+      for (final x in _libModels)
+        if (x.id != m.id) x,
+      m,
+    ];
+    if (!mounted) {
+      _libModels = next;
       return;
     }
-    if (mounted) setState(() {});
+    setState(() => _libModels = next);
   }
 
   /// 用户模型库（测试可注入临时目录；生产是 app 文档目录下的 lib_models.json）。
   LibModelsStore get _libStore => widget.libStore ?? LibModelsStore();
+
+  /// 库条目按 id 索引（painter 每帧要按 item.lib 查 `sil`；条目数一般几十条）。
+  Map<String, LibModel> get _libById => {
+    for (final m in _libModels) m.id: m,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -262,6 +300,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                           : null,
                       rooms: _roomsOf(plan),
                       showAreas: _showAreas,
+                      libs: _libById,
                     ),
                     child: const SizedBox.expand(),
                   ),
@@ -820,7 +859,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       return;
     }
     if (!mounted) return;
-    setState(() {});
+    await _reloadLibModels(); // 新条目立刻进 2D 轮廓缓存
     _toast('导入 ${r.added} 件，跳过 ${r.skipped} 件');
   }
 
@@ -840,7 +879,9 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   }
 
   /// 用户模型（kind=lib）放置：与库 tile 同一条路径（_startPlacingLibItem）。
+  /// 顺手把条目塞进 [_libModels]：刚导入的条目立刻能画 2D 轮廓，不等整库重读。
   void _startPlacingLib(LibModel m) {
+    _rememberLibModel(m);
     _startPlacingLibItem(
       FurnitureTabItem(
         ref: 'lib:${m.id}',
@@ -903,6 +944,9 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   /// 只是额外带上 lib id 与库尺寸（放下后可双击改尺寸）。
   void _startPlacingLibItem(FurnitureTabItem it) {
     _setTool(EditorTool.furniture);
+    // 走这条路径的 lib 件（家具 tab 里的用户模型）也必须能画轮廓：条目缓存
+    // 可能还是建页时那份 → 后台重读一次（命中内存，不阻塞放置）。
+    if (it.libId != null) unawaited(_reloadLibModels());
     setState(() {
       _furnKind = FurnitureKind.lib;
       _pendingKind = FurnitureKind.lib;
@@ -3417,6 +3461,20 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
   }
 }
 
+/// 2D 轮廓来源（P2）：内置件查 P1 生成表，用户库物品查条目自带的 `sil`。
+/// 查不到（旧数据/还没生成/库条目缺失）→ null，画布回落 RRect。
+/// 抽成顶层函数是为了单测能直接验回落，不用起 painter。
+ModelSilhouette? planItemSilhouette(
+  FurnitureItem item,
+  Map<String, LibModel> libs,
+) {
+  final mid = item.modelId;
+  if (mid != null) return silhouetteFor(mid);
+  final libId = item.lib;
+  if (libId == null || libId.isEmpty) return null;
+  return libs[libId]?.sil;
+}
+
 class _PlanPainter extends CustomPainter {
   final FloorPlan plan;
   final CameraCtrl cam;
@@ -3425,6 +3483,11 @@ class _PlanPainter extends CustomPainter {
   final List<RoomLoop> rooms; // 房间环（面积标注 + 选中高亮）
   final bool showAreas;
 
+  /// P2：本户型引用到的用户库条目（id → LibModel），由编辑器状态经
+  /// `_warmLibModels`/`_reloadLibModels` 沿既有数据通道传进来；缺条目 →
+  /// 该 lib 物品回落 RRect（不崩）。painter 自己不查文件、不做 IO。
+  final Map<String, LibModel> libs;
+
   _PlanPainter({
     required this.plan,
     required this.cam,
@@ -3432,6 +3495,7 @@ class _PlanPainter extends CustomPainter {
     this.draft,
     this.rooms = const [],
     this.showAreas = true,
+    this.libs = const {},
   });
 
   @override
@@ -3826,18 +3890,53 @@ class _PlanPainter extends CustomPainter {
             ..strokeWidth = selected ? 2.5 : 1.5,
         );
       } else {
-        final rRect = RRect.fromRectAndRadius(
-          Rect.fromCenter(center: Offset.zero, width: w, height: h),
-          const Radius.circular(4),
-        );
-        canvas.drawRRect(rRect, Paint()..color = color.withValues(alpha: 0.25));
-        canvas.drawRRect(
-          rRect,
-          Paint()
-            ..color = color
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = selected ? 2.5 : 1.5,
-        );
+        // v0.1.40：有 3D 素材的 floor 物品画俯视矢量轮廓（外轮廓 + 孔洞 + 顶面
+        // 分隔线），比绿方块更像原 app；v0.1.41（P2）用户库物品同法（条目 sil）。
+        // 查不到轮廓（旧数据 / 用户素材还没生成 / 库条目缺失）才回落到 RRect。
+        // 配色：轮廓描边走 PlanPalette.text（深灰，未选中不再发绿），选中时 sel 橙；
+        // 内部线同色系。RRect 回落与圆柱 kind 仍用 JiajiaColors.furniture（绿框）。
+        final sil = planItemSilhouette(i, libs);
+        final silPath = sil == null ? null : buildSilhouettePath(sil, w, h);
+        if (silPath != null) {
+          canvas.drawPath(
+            silPath,
+            Paint()..color = PlanPalette.text.withValues(alpha: 0.10),
+          );
+          canvas.drawPath(
+            silPath,
+            Paint()
+              ..color = selected ? PlanPalette.sel : PlanPalette.text
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = selected ? 2.5 : 1.5
+              ..strokeJoin = StrokeJoin.round,
+          );
+          final linePath = buildSilhouetteLinesPath(sil!, w, h);
+          if (linePath != null) {
+            canvas.drawPath(
+              linePath,
+              Paint()
+                ..color = selected
+                    ? PlanPalette.sel
+                    : PlanPalette.text.withValues(alpha: 0.55)
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 1.2
+                ..strokeCap = StrokeCap.round,
+            );
+          }
+        } else {
+          final rRect = RRect.fromRectAndRadius(
+            Rect.fromCenter(center: Offset.zero, width: w, height: h),
+            const Radius.circular(4),
+          );
+          canvas.drawRRect(rRect, Paint()..color = color.withValues(alpha: 0.25));
+          canvas.drawRRect(
+            rRect,
+            Paint()
+              ..color = color
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = selected ? 2.5 : 1.5,
+          );
+        }
       }
       final label = _itemLabelOf(i);
       final tp = TextPainter(
@@ -4923,6 +5022,9 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
     hM: draft.hMm / 1000,
     color: ModelLeaves.defaultColor(id),
     objText: text,
+    // 闸已过（上面 ObjParser.parse）→ 同法现算 2D 轮廓入库，2D 立刻有轮廓；
+    // 算不出（退化几何）→ null，画布回落 RRect，不阻断导入。
+    sil: ModelSilhouette.tryFromObjText(text),
   );
   try {
     final list = await store.add(model);

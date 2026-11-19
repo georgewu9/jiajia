@@ -13,6 +13,7 @@ import '../domain/floor_plan.dart' show FurnitureCatalog;
 import '../domain/model_asset_text.dart';
 import '../domain/model_items.dart';
 import '../domain/model_leaves.dart';
+import '../domain/model_silhouettes.dart';
 import '../domain/obj_parse.dart';
 import 'lib_models_store.dart';
 
@@ -28,6 +29,10 @@ class ModelTransferItem {
   final int color;
   final String objText;
 
+  /// 2D 俯视轮廓（P2）：单件 JSON 的 `sil` 字段；导入时原样入库，
+  /// 缺省 → 入库/导出链路用 OBJ 现算（见 [LibModel.withSilhouette]）。
+  final ModelSilhouette? sil;
+
   const ModelTransferItem({
     required this.id,
     required this.name,
@@ -38,6 +43,7 @@ class ModelTransferItem {
     required this.hmm,
     required this.color,
     required this.objText,
+    this.sil,
   });
 
   LibModel toLibModel() => LibModel(
@@ -50,6 +56,7 @@ class ModelTransferItem {
     hM: hmm / 1000,
     color: color,
     objText: objText,
+    sil: sil,
   );
 
   /// 导入到某个叶子菜单时，归属以菜单为准（cat/subCat 覆盖文件里的值）。
@@ -64,8 +71,10 @@ class ModelTransferItem {
         hmm: hmm,
         color: color,
         objText: objText,
+        sil: sil,
       );
 
+  /// 用户库条目 → 可搬运条目：带 sil（条目没算过就现算，导出文件总能带上）。
   static ModelTransferItem fromLibModel(LibModel m) => ModelTransferItem(
     id: m.id,
     name: m.name,
@@ -76,6 +85,7 @@ class ModelTransferItem {
     hmm: (m.hM * 1000).round(),
     color: m.color,
     objText: m.objText,
+    sil: m.sil ?? ModelSilhouette.tryFromObjText(m.objText),
   );
 
   /// 系统 ModelSpec → 可搬运条目。
@@ -88,6 +98,8 @@ class ModelTransferItem {
     AssetModel? asset,
   }) {
     final (w, d, h) = dimsOfSpec(m);
+    final obj = asset?.objText ??
+        placeholderBox(wmm: w, dmm: d, hmm: h, name: m.label);
     return ModelTransferItem(
       id: m.modelId ?? m.id,
       name: m.label,
@@ -97,12 +109,16 @@ class ModelTransferItem {
       dmm: d,
       hmm: h,
       color: asset?.color ?? colorOfSpec(m),
-      objText: asset?.objText ?? placeholderBox(wmm: w, dmm: d, hmm: h, name: m.label),
+      objText: obj,
+      // 优先查 P1 生成表（内置件与生成器逐点一致）；表里没有（程序化件/
+      // 占位盒）再用 Dart 算法对同一份 OBJ 现算。
+      sil: silhouetteFor(m.modelId) ?? ModelSilhouette.tryFromObjText(obj),
     );
   }
 
-  /// 单件文件格式（扁平 9 键，直接给用户看/手改）：
-  /// `{id,name,cat,subCat,wmm,dmm,hmm,color,objText}`；subCat 可空时省略。
+  /// 单件文件格式（扁平 10 键，直接给用户看/手改）：
+  /// `{id,name,cat,subCat,wmm,dmm,hmm,color,objText,sil}`；subCat 可空时省略、
+  /// sil 算不出时省略（导入端会再算）。
   Map<String, dynamic> toSingleJson() => {
     'id': id,
     'name': name,
@@ -113,6 +129,7 @@ class ModelTransferItem {
     'hmm': hmm,
     'color': color,
     'objText': objText,
+    if (sil != null) 'sil': sil!.toJson(),
   };
 
   String encodeSingle() => jsonEncode(toSingleJson());
@@ -149,6 +166,17 @@ class ModelTransferItem {
         ? colorRaw.toInt()
         : ModelLeaves.defaultColor(id.trim());
 
+    // sil：宽容解析（有则原样保留，坏形状当没有；入库时 merge 会补算）。
+    ModelSilhouette? sil;
+    final silRaw = j['sil'];
+    if (silRaw is Map) {
+      try {
+        sil = ModelSilhouette.fromJson(Map<String, dynamic>.from(silRaw));
+      } catch (_) {
+        sil = null;
+      }
+    }
+
     return ModelTransferItem(
       id: id.trim(),
       name: name,
@@ -159,6 +187,7 @@ class ModelTransferItem {
       hmm: mm(j['hmm'], j['hM']),
       color: color,
       objText: obj,
+      sil: sil,
     );
   }
 
@@ -246,13 +275,14 @@ class UserModelExportCodec {
   static const String type = 'userModels';
   static const String fileName = '用户模型_全量.json';
 
+  /// 全量导出：每条带 `sil`（旧条目没算过 → 导出时现算；算不出省略）。
   static String encodeAll(List<LibModel> models) => jsonEncode({
     'app': 'jiajia',
     'type': type,
     'version': 1,
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
     'models': [
-      for (final m in models)
+      for (final m in models.map((x) => x.withSilhouette()))
         {
           'libId': m.id,
           'name': m.name,
@@ -263,6 +293,7 @@ class UserModelExportCodec {
           'hmm': (m.hM * 1000).round(),
           'color': m.color,
           'objText': m.objText,
+          if (m.sil != null) 'sil': m.sil!.toJson(),
         },
     ],
   });
