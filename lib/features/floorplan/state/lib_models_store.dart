@@ -1,4 +1,4 @@
-// 模型库：用户导入的外部 OBJ（家具/收纳/自定义件），存 app 根目录下
+// 模型库：用户导入的外部 OBJ（门窗/家具/庭院/自定义件），存 app 根目录下
 // `lib_models.json`（与 `plans/` 同级），全 app 共用一份。
 //
 // 与户型 JSON 的关系：
@@ -6,6 +6,10 @@
 //   · 3D 端由 [LibModelsStore.payloadForPlan] 收集「本户型引用到的」库模型，
 //     随 setPlan 的 `libs` 数组下发；
 //   · 库文件单独导出/导入（jiajia_models.json），跨设备搬运模型库。
+//
+// v0.1.38：条目新增 subCat（家具 tab）/ color（导出带色）；cat 改为叶子分类
+// （门/窗/梁柱/楼梯/特殊墙窗/家具/庭院/用户素材，见 ModelLeaves），旧条目的
+// 卧室/书房等旧分类按「无分类」处理，进「用户素材」菜单。
 //
 // 所有读操作都宽容：文件缺失/损坏/字段缺失 → 返回空表或跳过该条，绝不崩。
 import 'dart:convert';
@@ -15,7 +19,7 @@ import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
 
 import '../domain/floor_plan.dart';
-import '../domain/furniture_tabs.dart';
+import '../domain/model_leaves.dart';
 import '../domain/obj_parse.dart';
 
 /// 一个库模型（OBJ 文本 + 展示/摆放尺寸）。
@@ -25,13 +29,19 @@ class LibModel {
   /// 展示名（同一分类内可重名，入库时自动加 (1)）。
   final String name;
 
-  /// 5 个家具分类之一（FurnitureTabs.cats）。
+  /// 叶子分类（ModelLeaves.all）或旧分类（卧室/书房…，视为无分类）。
   final String cat;
+
+  /// 家具菜单的二级 tab（卧室/客餐厅/书房/厨卫/其他）；非家具为 null。
+  final String? subCat;
 
   /// 宽松尺寸（米）；导出/导入缺失时按 bbox 或 1×0.6×1 兜底。
   final double wM;
   final double dM;
   final double hM;
+
+  /// 导出/3D 兜底色（0xRRGGBB）。用户可改？暂无入口，导入时按 id 散列分配。
+  final int color;
 
   /// 原始 OBJ 文本（3D 端 parseOBJ 直接吃）。
   final String objText;
@@ -40,46 +50,76 @@ class LibModel {
     required this.id,
     required this.name,
     required this.cat,
+    this.subCat,
     required this.wM,
     required this.dM,
     required this.hM,
+    this.color = 0x8FB7D6,
     required this.objText,
   });
 
   /// 由 OBJ 文本生成稳定 id：md5 前 10 位（同文件重复导入 → 同 id → 跳过）。
+  /// v0.1.38 起新的 .obj 导入改用 `u_<时间戳>_<slug>`（见 [newImportId]），
+  /// 这个函数保留给旧数据/测试。
   static String idForText(String objText) => _md5Hex(objText).substring(0, 10);
 
-  LibModel copyWith({String? name}) => LibModel(
-    id: id,
-    name: name ?? this.name,
-    cat: cat,
-    wM: wM,
-    dM: dM,
-    hM: hM,
-    objText: objText,
-  );
+  /// 单模型导入的新 libId：`u_<毫秒时间戳>_<slug>`（slug 由文件名清洗而来）。
+  /// [nowMs] 可注入，便于单测钉住格式。
+  static String newImportId(String baseName, {int? nowMs}) {
+    final ts = nowMs ?? DateTime.now().millisecondsSinceEpoch;
+    final slug = slugOf(baseName);
+    return slug.isEmpty ? 'u_$ts' : 'u_${ts}_$slug';
+  }
+
+  /// 文件名 → id 尾巴：只留小写字母/数字/下划线，最长 16 字符。
+  static String slugOf(String baseName) {
+    final s = baseName
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '');
+    return s.length > 16 ? s.substring(0, 16) : s;
+  }
+
+  LibModel copyWith({String? name, String? cat, String? subCat, int? color}) =>
+      LibModel(
+        id: id,
+        name: name ?? this.name,
+        cat: cat ?? this.cat,
+        subCat: subCat ?? this.subCat,
+        wM: wM,
+        dM: dM,
+        hM: hM,
+        color: color ?? this.color,
+        objText: objText,
+      );
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
     'cat': cat,
+    if (subCat != null && subCat!.isNotEmpty) 'subCat': subCat,
     'wM': wM,
     'dM': dM,
     'hM': hM,
+    'color': color,
     'objText': objText,
   };
 
-  /// 宽容解析单条：id/name/cat/objText 缺失 → null（跳过该条）；
+  /// 宽容解析单条：id/name/objText 缺失 → null（跳过该条）；
+  /// cat 缺失按空串（无分类，进「用户素材」）；subCat/color 缺失 → null/散列默认。
   /// 尺寸缺失/非法 → 用 bbox，再不行用 1×0.6×1（与 FurnitureKind.lib 默认一致）。
   static LibModel? fromJson(Map<String, dynamic> j) {
     final id = j['id'];
     final name = j['name'];
-    final cat = j['cat'];
     final obj = j['objText'];
     if (id is! String || id.trim().isEmpty) return null;
     if (name is! String || name.trim().isEmpty) return null;
-    if (cat is! String || cat.trim().isEmpty) return null;
     if (obj is! String || obj.trim().isEmpty) return null;
+    final catRaw = j['cat'];
+    final cat = catRaw is String ? catRaw.trim() : '';
+    final subRaw = j['subCat'];
+    final subCat =
+        (subRaw is String && subRaw.trim().isNotEmpty) ? subRaw.trim() : null;
 
     ObjData? bbox;
     // 只有尺寸缺失/非法时才解析 bbox：正常入库的条目一定带 wM/dM/hM，
@@ -105,18 +145,26 @@ class LibModel {
       return fallback;
     }
 
+    final colorRaw = j['color'];
+    final color = (colorRaw is num && colorRaw.toInt() > 0)
+        ? colorRaw.toInt()
+        : ModelLeaves.defaultColor(id);
+
     return LibModel(
       id: id,
       name: name,
-      // 分类只允许 5 类之一：外部文件写了未知分类 → 归「其他」，否则网格里永远看不到
-      cat: FurnitureTabs.cats.contains(cat) ? cat : '其他',
+      // 分类不再强制改写：未知/旧分类保留原值，UI 按「无分类」收进用户素材
+      cat: cat,
+      subCat: subCat,
       wM: pick(j['wM'], bbox?.bboxW ?? 0, 1.0),
       dM: pick(j['dM'], bbox?.bboxD ?? 0, 0.6),
       hM: pick(j['hM'], bbox?.bboxH ?? 0, 1.0),
+      color: color,
       objText: obj,
     );
   }
 }
+
 
 /// 模型库文件读写。`root` 可注入（单测传临时目录，同 PlanStore 套路）。
 class LibModelsStore {
@@ -239,9 +287,7 @@ class LibModelsStore {
     }
     if (ids.isEmpty) return const <Map<String, dynamic>>[];
     final all = await (store ?? LibModelsStore()).load();
-    const palette = [0x8FB7D6, 0x9FD3A8, 0xD9B28A, 0xC7A88F, 0xB08968];
     final out = <Map<String, dynamic>>[];
-    var n = 0;
     for (final m in all) {
       if (!ids.contains(m.id)) continue;
       out.add({
@@ -251,11 +297,16 @@ class LibModelsStore {
         'w': m.wM,
         'd': m.dM,
         'h': m.hM,
-        'c': palette[n++ % palette.length],
+        // v0.1.38：用条目自己的色（导入时定），旧数据也有散列默认色
+        'c': m.color,
       });
     }
     return out;
   }
+
+  /// 「用户素材」网格的数据源：cat 为空/未知/等于「用户素材」的条目。
+  static List<LibModel> userAssetsOf(List<LibModel> all) =>
+      all.where((m) => ModelLeaves.isUserAsset(m.cat)).toList(growable: false);
 }
 
 /// 合并结果（供 SnackBar 报「导入 X 条，跳过 Y 条重复」）。

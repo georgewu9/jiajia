@@ -12,10 +12,14 @@ import '../domain/floor_plan.dart';
 import '../domain/furniture_tabs.dart';
 import '../domain/model_assets.dart';
 import '../domain/model_items.dart';
+import '../domain/model_leaves.dart';
 import '../domain/obj_parse.dart';
 import '../state/editor_doc.dart';
 import '../state/lib_models_store.dart';
+import '../state/model_transfer.dart';
+import '../state/model_transfer_io.dart';
 import '../state/plan_io.dart';
+import 'model_tile.dart';
 import 'plan_palette.dart';
 import '../../viewer3d/viewer3d_page.dart';
 
@@ -71,11 +75,15 @@ class CameraCtrl {
 }
 
 class FloorplanEditorPage extends ConsumerStatefulWidget {
-  const FloorplanEditorPage({super.key, this.store});
+  const FloorplanEditorPage({super.key, this.store, this.libStore});
 
   /// 可注入的存储（单测传临时目录）：保存 + 回写原路径都走它；
   /// 默认 null → 生产用 `PlanStore()`（app 文档目录）。
   final PlanStore? store;
+
+  /// 可注入的用户模型库（单测传临时目录，预置用户模型看 tile 颜色/用户素材）；
+  /// 默认 null → 生产用 `LibModelsStore()`（app 文档目录）。
+  final LibModelsStore? libStore;
 
   @override
   ConsumerState<FloorplanEditorPage> createState() =>
@@ -119,12 +127,15 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   /// 库文件缺失/平台不可用 → 静默忽略，2D 回退「库模型」。
   Future<void> _warmLibNames() async {
     try {
-      await LibModelsStore().load();
+      await _libStore.load();
     } catch (_) {
       return;
     }
     if (mounted) setState(() {});
   }
+
+  /// 用户模型库（测试可注入临时目录；生产是 app 文档目录下的 lib_models.json）。
+  LibModelsStore get _libStore => widget.libStore ?? LibModelsStore();
 
   @override
   Widget build(BuildContext context) {
@@ -591,6 +602,8 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   // ---------------- 模块（二级菜单：门/窗/梁柱/楼梯/拆改/特殊墙窗/家具） ----------------
 
   /// 模块一级菜单：7 个入口 → 二级素材网格 / 家具抽屉 / 拆改面板。
+  /// 模块一级菜单：素材入口（门/窗/梁柱/楼梯/特殊墙窗/家具/庭院）+ 拆改，
+  /// v0.1.38 新增三个模型搬运入口：全量导出 / 全量导入 / 用户素材。
   void _openModuleSheet() {
     showModalBottomSheet(
       context: context,
@@ -598,9 +611,9 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       backgroundColor: JiajiaColors.surface,
       builder: (_) => DraggableScrollableSheet(
         expand: false,
-        initialChildSize: 0.45,
+        initialChildSize: 0.5,
         minChildSize: 0.4,
-        maxChildSize: 0.7,
+        maxChildSize: 0.75,
         builder: (c, sc) => ListView(
           controller: sc,
           padding: const EdgeInsets.all(16),
@@ -619,44 +632,75 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
               runSpacing: 8,
               children: [
                 _moduleEntry(
-                  '门',
+                  ModelLeaves.door,
                   Icons.door_sliding,
-                  () => _openModuleModelsSheet('门 · 素材', ModelItems.ofCategory('门')),
+                  () => _openModuleModelsSheet(
+                    ModelLeaves.door,
+                    ModelItems.ofCategory('门'),
+                  ),
                 ),
                 _moduleEntry(
-                  '窗',
+                  ModelLeaves.window,
                   Icons.crop_square,
-                  () => _openModuleModelsSheet('窗 · 素材', ModelItems.ofCategory('窗')),
+                  () => _openModuleModelsSheet(
+                    ModelLeaves.window,
+                    ModelItems.ofCategory('窗'),
+                  ),
                 ),
                 _moduleEntry(
-                  '梁柱',
+                  ModelLeaves.columnBeam,
                   Icons.architecture,
                   () => _openModuleModelsSheet(
-                    '梁柱 · 素材',
+                    ModelLeaves.columnBeam,
                     ModelItems.byCategories(['柱', '梁']),
                   ),
                 ),
                 _moduleEntry(
-                  '楼梯',
+                  ModelLeaves.stair,
                   Icons.escalator,
-                  () => _openModuleModelsSheet('楼梯 · 素材', ModelItems.ofCategory('楼梯')),
+                  () => _openModuleModelsSheet(
+                    ModelLeaves.stair,
+                    ModelItems.ofCategory('楼梯'),
+                  ),
                 ),
                 _moduleEntry('拆改', Icons.call_split, _openRenovSheet),
                 _moduleEntry(
-                  '特殊墙窗',
+                  ModelLeaves.specialWallWindow,
                   Icons.opacity,
-                  () => _openModuleModelsSheet('特殊墙窗 · 素材', ModelItems.ofCategory('特殊墙窗')),
+                  () => _openModuleModelsSheet(
+                    ModelLeaves.specialWallWindow,
+                    ModelItems.ofCategory('特殊墙窗'),
+                  ),
                 ),
                 // v0.1.31：第 7 入口「家具」→ 单 sheet（5 分类 chips + 素材网格）
                 _moduleEntry('家具', Icons.bed, _openFurnitureSheet),
-                // v0.1.36：第 8 入口「庭院」→ 11 件 CC0/CC-BY 庭院 OBJ（地面摆放；v0.1.37 删坡道栏杆）
+                // v0.1.36：第 8 入口「庭院」→ 11 件 CC0/CC-BY 庭院 OBJ
                 _moduleEntry(
-                  '庭院',
+                  ModelLeaves.courtyard,
                   Icons.park,
                   () => _openModuleModelsSheet(
-                    '庭院 · 素材',
+                    ModelLeaves.courtyard,
                     ModelItems.ofCategory('庭院'),
                   ),
+                ),
+                // ---- v0.1.38：用户模型搬运（模块页平级入口）----
+                _moduleEntry(
+                  '全量导出',
+                  Icons.file_upload_outlined,
+                  _exportAllUserModels,
+                  key: const ValueKey('module_full_export'),
+                ),
+                _moduleEntry(
+                  '全量导入',
+                  Icons.file_download_outlined,
+                  _importAllUserModels,
+                  key: const ValueKey('module_full_import'),
+                ),
+                _moduleEntry(
+                  ModelLeaves.userAssets,
+                  Icons.folder_special,
+                  _openUserAssetsSheet,
+                  key: const ValueKey('module_user_assets'),
                 ),
               ],
             ),
@@ -666,8 +710,14 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     );
   }
 
-  Widget _moduleEntry(String label, IconData icon, VoidCallback onTap) {
+  Widget _moduleEntry(
+    String label,
+    IconData icon,
+    VoidCallback onTap, {
+    Key? key,
+  }) {
     return InkWell(
+      key: key,
       borderRadius: BorderRadius.circular(10),
       onTap: onTap,
       child: Container(
@@ -689,136 +739,124 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     );
   }
 
-  /// 模块二级：素材网格（门/窗/梁柱/楼梯/特殊墙窗 共用）。选中 → 进入放置模式。
-  void _openModuleModelsSheet(String title, List<ModelSpec> items) {
+  /// 模块二级：素材网格（门/窗/梁柱/楼梯/特殊墙窗/庭院 共用）。
+  /// 网格 = 导入 tile + 系统素材 + 本叶子分类下的用户模型；长按 tile 导出单件 JSON。
+  void _openModuleModelsSheet(String cat, List<ModelSpec> items, {String? subCat}) {
     Navigator.pop(context); // 收一级菜单
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: JiajiaColors.surface,
-      builder: (_) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.6,
-        minChildSize: 0.4,
-        maxChildSize: 0.9,
-        builder: (c, sc) => ListView(
-          controller: sc,
-          padding: const EdgeInsets.all(12),
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '$title（${items.length} 件）',
-                    style: const TextStyle(
-                      color: JiajiaColors.text1,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _openModuleSheet();
-                  },
-                  child: const Text('← 模块', style: TextStyle(fontSize: 12)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate:
-                  const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                mainAxisSpacing: 8,
-              ),
-              itemCount: items.length,
-              itemBuilder: (_, j) {
-                final m = items[j];
-                return InkWell(
-                  borderRadius: BorderRadius.circular(10),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _startPlacingModel(m);
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    decoration: BoxDecoration(
-                      color: JiajiaColors.raised,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: JiajiaColors.line),
-                    ),
-                    child: Column(
-                      children: [
-                        if (m.icon != null)
-                          Image.asset(
-                            m.icon!,
-                            width: 34,
-                            height: 34,
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, _, _) => Icon(
-                              m.place == ModelPlace.wall ? Icons.open_in_full : Icons.category,
-                              color: JiajiaColors.text2,
-                              size: 26,
-                            ),
-                          )
-                        else
-                          Icon(
-                            m.place == ModelPlace.wall ? Icons.open_in_full : Icons.category,
-                            color: JiajiaColors.accent,
-                            size: 26,
-                          ),
-                        const SizedBox(height: 4),
-                        Text(
-                          m.label,
-                          style: const TextStyle(color: JiajiaColors.text1, fontSize: 12),
-                        ),
-                        Text(
-                          m.specText,
-                          style: TextStyle(color: JiajiaColors.text2, fontSize: 9),
-                        ),
-                        // v0.1.36：CC-BY 素材角标（fountain 必须让用户看到署名协议）
-                        if (m.credit != null)
-                          Container(
-                            margin: const EdgeInsets.only(top: 2),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 4, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: JiajiaColors.accentSoft,
-                              borderRadius: BorderRadius.circular(3),
-                            ),
-                            child: const Text(
-                              'CC-BY',
-                              style: TextStyle(
-                                color: JiajiaColors.accent,
-                                fontSize: 8,
-                                height: 1.1,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-            // v0.1.36：CC-BY 素材完整署名（app 无「关于/设置」页，落在素材 sheet 底部）
-            if (items.any((m) => m.credit != null)) ...[
-              const SizedBox(height: 10),
-              const Divider(height: 1, color: JiajiaColors.line),
-              const SizedBox(height: 6),
-              Text(
-                '3D 素材署名：${items.where((m) => m.credit != null).map((m) => '${m.label} — ${m.credit}').join('；')}',
-                style: const TextStyle(color: JiajiaColors.text2, fontSize: 9),
-              ),
-            ],
-          ],
-        ),
+      builder: (_) => _ModelMenuSheet(
+        cat: cat,
+        subCat: subCat,
+        items: items,
+        libStore: _libStore,
+        onPickSpec: _startPlacingModel,
+        onPickLib: _startPlacingLib,
+        onBack: _openModuleSheet,
       ),
     );
+  }
+
+  /// 全量导出（v0.1.38）：只导出用户模型（LibModelsStore 全体），
+  /// 每条带 libId/cat/subCat/尺寸/颜色/objText；落到用户选的目录。
+  Future<void> _exportAllUserModels() async {
+    Navigator.pop(context); // 收一级菜单，SnackBar 才看得见
+    List<LibModel> models;
+    try {
+      models = await _libStore.load();
+    } catch (_) {
+      models = const <LibModel>[];
+    }
+    String? where;
+    try {
+      where = await ModelFiles.saveJson(
+        fileName: UserModelExportCodec.fileName,
+        json: UserModelExportCodec.encodeAll(models),
+        dialogTitle: '导出用户模型',
+      );
+    } catch (e) {
+      _toast('导出失败：${_errText(e)}');
+      return;
+    }
+    if (where == null) return; // 用户取消
+    _toast(models.isEmpty
+        ? '用户模型为空：已导出 0 件（可导入到其他设备累积）→ $where'
+        : '已导出 ${models.length} 件用户模型 → $where');
+  }
+
+  /// 全量导入（v0.1.38）：逐条写回 LibModelsStore，libId 已存在跳过；
+  /// 解析失败/缺字段/超闸的条目宽容跳过并计数 → 「导入 N 件，跳过 M 件」。
+  Future<void> _importAllUserModels() async {
+    Navigator.pop(context); // 收一级菜单
+    PlatformFile? file;
+    try {
+      file = await ModelFiles.pickModelFile(dialogTitle: '导入用户模型全量');
+    } catch (e) {
+      _toast('打不开文件选择器：${_errText(e)}');
+      return;
+    }
+    if (file == null) return; // 用户取消
+    UserModelImportPayload payload;
+    try {
+      payload = UserModelImportCodec.decode(await ModelFiles.readText(file));
+    } on FormatException catch (e) {
+      _toast(e.message);
+      return;
+    } catch (e) {
+      _toast('读取用户模型失败：${_errText(e)}');
+      return;
+    }
+    UserModelMergeResult r;
+    try {
+      r = await UserModelMerger.merge(
+        _libStore,
+        payload.models,
+        invalid: payload.invalid,
+      );
+    } catch (e) {
+      _toast('导入失败：${_errText(e)}');
+      return;
+    }
+    if (!mounted) return;
+    setState(() {});
+    _toast('导入 ${r.added} 件，跳过 ${r.skipped} 件');
+  }
+
+  /// 用户素材（v0.1.38）：无分类（cat 空/未知）用户模型 + cat=用户素材 的条目。
+  void _openUserAssetsSheet() {
+    Navigator.pop(context);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: JiajiaColors.surface,
+      builder: (_) => _UserAssetsSheet(
+        libStore: _libStore,
+        onPick: _startPlacingLib,
+        onBack: _openModuleSheet,
+      ),
+    );
+  }
+
+  /// 用户模型（kind=lib）放置：与库 tile 同一条路径（_startPlacingLibItem）。
+  void _startPlacingLib(LibModel m) {
+    _startPlacingLibItem(
+      FurnitureTabItem(
+        ref: 'lib:${m.id}',
+        label: m.name,
+        libId: m.id,
+        libW: m.wM,
+        libD: m.dM,
+        libH: m.hM,
+      ),
+    );
+  }
+
+  /// 异常文本截断（平台异常可能带一大段通道信息，SnackBar 只看前 80 字）。
+  String _errText(Object e) {
+    final s = e.toString();
+    return s.length > 80 ? '${s.substring(0, 80)}…' : s;
   }
 
   /// 模块 → 家具：单个 sheet（5 分类 chips + 素材网格），不另开二级 sheet。
@@ -831,6 +869,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       builder: (_) => _FurnitureTabSheet(
         onPick: _startPlacingTabItem,
         onBack: _openModuleSheet,
+        libStore: _libStore,
       ),
     );
   }
@@ -4084,8 +4123,13 @@ class _RoomDialogState extends ConsumerState<_RoomDialog> {
 class _FurnitureTabSheet extends StatefulWidget {
   final ValueChanged<FurnitureTabItem> onPick;
   final VoidCallback onBack;
+  final LibModelsStore libStore;
 
-  const _FurnitureTabSheet({required this.onPick, required this.onBack});
+  const _FurnitureTabSheet({
+    required this.onPick,
+    required this.onBack,
+    required this.libStore,
+  });
 
   @override
   State<_FurnitureTabSheet> createState() => _FurnitureTabSheetState();
@@ -4106,7 +4150,7 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
   Future<void> _reloadLibs() async {
     List<LibModel> out;
     try {
-      out = await LibModelsStore().load();
+      out = await widget.libStore.load();
     } catch (_) {
       out = const <LibModel>[];
     }
@@ -4126,16 +4170,6 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
   String _errText(Object e) {
     final s = e.toString();
     return s.length > 80 ? '${s.substring(0, 80)}…' : s;
-  }
-
-  /// 文件名 → 默认模型名（去目录、去 .obj）。SAF 返回的 name 通常已只有文件名。
-  String _baseName(String name) {
-    final slash = name.lastIndexOf(RegExp(r'[\\/]'));
-    var base = slash >= 0 ? name.substring(slash + 1) : name;
-    final dot = base.lastIndexOf('.');
-    if (dot > 0) base = base.substring(0, dot);
-    base = base.trim();
-    return base.isEmpty ? '库模型' : base;
   }
 
   /// 家具 kind 的占位图标（assets/models2d 里没有家具图标，与原二级网格一致用 Icon）。
@@ -4187,81 +4221,38 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
     }
   }
 
-  // ---------------- 导入 OBJ → 校验 → 命名/分类/尺寸 → 入库 ----------------
+  // ---------------- 导入（.obj 或单模型 JSON）→ 闸 → 命名/分类/尺寸 → 入库 ----------------
 
-  Future<void> _importObj() async {
+  Future<void> _importInto() async {
     if (_busy) return;
     PlatformFile? file;
     try {
-      file = await FilePicker.pickFile(
-        dialogTitle: '导入 OBJ 模型',
-        type: FileType.custom,
-        allowedExtensions: const ['obj'],
-      );
+      file = await ModelFiles.pickModelFile(dialogTitle: '导入模型');
     } catch (e) {
       // 平台通道不可用（widget 测试/桌面预览）→ 提示，不崩
       _snack('打不开文件选择器：${_errText(e)}');
       return;
     }
     if (file == null) return; // 用户取消
-    String text;
-    try {
-      text = utf8.decode(await file.readAsBytes(), allowMalformed: true);
-    } catch (e) {
-      _snack('读取文件失败：${_errText(e)}');
-      return;
-    }
-    ObjData data;
-    try {
-      data = ObjParser.parse(text);
-    } on ObjParseException catch (e) {
-      _snack(e.message);
-      return;
-    } catch (e) {
-      _snack('OBJ 解析失败：${_errText(e)}');
-      return;
-    }
     if (!mounted) return;
-    final draft = await showDialog<_LibDraft>(
+    final out = await _runModelImportFlow(
       context: context,
-      builder: (_) => _LibModelDialog(
-        defaultName: _baseName(file!.name),
-        wMm: data.wMm,
-        dMm: data.dMm,
-        hMm: data.hMm,
-        faceCount: data.faceCount,
-      ),
+      store: widget.libStore,
+      cat: ModelLeaves.furniture,
+      subCat: _cat,
+      file: file,
     );
-    if (draft == null || !mounted) return;
-    setState(() => _busy = true);
-    try {
-      final model = LibModel(
-        id: LibModel.idForText(text),
-        name: draft.name,
-        cat: draft.cat,
-        wM: draft.wMm / 1000,
-        dM: draft.dMm / 1000,
-        hM: draft.hMm / 1000,
-        objText: text,
-      );
-      final list = await LibModelsStore().add(model);
-      if (!mounted) return;
-      LibModel? saved;
-      for (final m in list) {
-        if (m.id == model.id) {
-          saved = m;
-          break;
-        }
-      }
-      setState(() {
-        _libs = list;
-        _cat = draft.cat; // 切到刚导入的分类，用户能立刻看到新 tile
-        _busy = false;
-      });
-      _snack(saved == null ? '已在库中：${model.name}' : '已导入「${saved.name}」');
-    } catch (e) {
-      if (mounted) setState(() => _busy = false);
-      _snack('入库失败：${_errText(e)}');
+    if (out == null || !mounted) return;
+    switch (out.status) {
+      case ModelImportStatus.added:
+        await _reloadLibs();
+        if (!mounted) return;
+        setState(() => _cat = out.model?.subCat ?? _cat);
+        _snack('已导入「${out.model?.name ?? ''}」');
+      case ModelImportStatus.duplicate:
+        _snack('已在库中：${out.model?.name ?? ''}（id 重复，已跳过）');
+      case ModelImportStatus.rejected:
+        _snack(out.message ?? '导入失败');
     }
   }
 
@@ -4271,7 +4262,7 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
     if (_busy) return;
     List<LibModel> models;
     try {
-      models = await LibModelsStore().load();
+      models = await widget.libStore.load();
     } catch (_) {
       models = _libs;
     }
@@ -4324,10 +4315,9 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
     }
     setState(() => _busy = true);
     try {
-      final store = LibModelsStore();
-      final existing = await store.load();
+      final existing = await widget.libStore.load();
       final merged = LibModelsStore.merge(existing, payload.models);
-      await store.save(merged.models);
+      await widget.libStore.save(merged.models);
       if (!mounted) return;
       setState(() {
         _libs = merged.models;
@@ -4343,61 +4333,61 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
 
   // ---------------- 网格 tile ----------------
 
-  Widget _tileShell({required Widget child, VoidCallback? onTap, Key? key}) {
-    return InkWell(
-      key: key,
-      borderRadius: BorderRadius.circular(10),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        decoration: BoxDecoration(
-          color: JiajiaColors.raised,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: JiajiaColors.line),
-        ),
-        child: child,
-      ),
-    );
-  }
-
   Widget _builtinTile(FurnitureTabItem it) {
-    final icon = it.icon;
-    return _tileShell(
+    final m = it.model;
+    return ModelTile(
+      key: ValueKey('tile_${it.ref}'),
+      label: it.label,
+      specText: it.specText,
+      iconPath: it.icon,
+      fallbackIcon: _iconOf(it),
+      credit: m?.credit,
       onTap: () {
         Navigator.pop(context);
         widget.onPick(it);
       },
-      child: Column(
-        children: [
-          if (icon != null)
-            Image.asset(
-              icon,
-              width: 34,
-              height: 34,
-              fit: BoxFit.contain,
-              errorBuilder: (_, _, _) => Icon(
-                _iconOf(it),
-                color: JiajiaColors.text2,
-                size: 26,
-              ),
-            )
-          else
-            Icon(_iconOf(it), color: JiajiaColors.accent, size: 26),
-          const SizedBox(height: 4),
-          Text(
-            it.label,
-            style: const TextStyle(color: JiajiaColors.text1, fontSize: 12),
-          ),
-          Text(
-            it.specText,
-            style: TextStyle(color: JiajiaColors.text2, fontSize: 9),
-          ),
-        ],
-      ),
+      onLongPress: m != null
+          ? () => _exportSpec(m)
+          : (it.kind != null ? () => _exportKind(it) : null),
     );
   }
 
-  /// 库模型 tile：右上角「库」角标；点按 → kind=lib 放置路径（带 lib id + 尺寸）。
+  /// 长按系统素材 tile → 导出单件 JSON（OBJ 原文逐字节来自 assets）。
+  Future<void> _exportSpec(ModelSpec m) async {
+    try {
+      final item = await ModelExport.forSpec(
+        m,
+        cat: ModelLeaves.furniture,
+        subCat: _cat,
+      );
+      final where = await ModelExport.save(item);
+      if (where == null || !mounted) return;
+      _snack('已导出「${item.name}」单件模型 → $where');
+    } catch (e) {
+      _snack('导出失败：${_errText(e)}');
+    }
+  }
+
+  /// 长按目录 kind tile（床/衣柜等无 OBJ）→ 按目录尺寸生成占位盒再导出。
+  Future<void> _exportKind(FurnitureTabItem it) async {
+    final k = it.kind;
+    if (k == null) return;
+    try {
+      final item = ModelExport.forKind(
+        k,
+        cat: ModelLeaves.furniture,
+        subCat: _cat,
+        name: it.label,
+      );
+      final where = await ModelExport.save(item);
+      if (where == null || !mounted) return;
+      _snack('已导出「${item.name}」单件模型（占位盒）→ $where');
+    } catch (e) {
+      _snack('导出失败：${_errText(e)}');
+    }
+  }
+
+  /// 用户模型 tile：琥珀边 + 「用户」角标（ModelTile 统一处理）。
   Widget _libTile(LibModel m) {
     final it = FurnitureTabItem(
       ref: 'lib:${m.id}',
@@ -4407,69 +4397,57 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
       libD: m.dM,
       libH: m.hM,
     );
-    return _tileShell(
+    return ModelTile(
       key: ValueKey('lib_tile_${m.id}'),
+      label: m.name,
+      specText: it.specText,
+      fallbackIcon: Icons.view_in_ar,
+      isUser: true,
       onTap: () {
         Navigator.pop(context);
         widget.onPick(it);
       },
-      child: Stack(
-        children: [
-          Column(
-            children: [
-              const Icon(Icons.view_in_ar,
-                  color: JiajiaColors.accent, size: 26),
-              const SizedBox(height: 4),
-              Text(
-                m.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style:
-                    const TextStyle(color: JiajiaColors.text1, fontSize: 12),
-              ),
-              Text(
-                it.specText,
-                style: TextStyle(color: JiajiaColors.text2, fontSize: 9),
-              ),
-            ],
-          ),
-          Positioned(
-            top: 0,
-            right: 2,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-              decoration: BoxDecoration(
-                color: JiajiaColors.accentSoft,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: const Text(
-                '库',
-                style: TextStyle(color: JiajiaColors.accent, fontSize: 8),
-              ),
-            ),
-          ),
-        ],
-      ),
+      onLongPress: () => _exportLibTile(m),
     );
   }
 
-  /// 固定 tile：导入外部 OBJ（每个分类下都出现，不随 chip 消失）。
+  Future<void> _exportLibTile(LibModel m) async {
+    try {
+      final where = await ModelExport.save(ModelExport.forLib(m));
+      if (where == null || !mounted) return;
+      _snack('已导出「${m.name}」单件模型 → $where');
+    } catch (e) {
+      _snack('导出失败：${_errText(e)}');
+    }
+  }
+
+  /// 固定 tile：导入外部 .obj / 单模型 JSON（每个分类下都出现，不随 chip 消失）。
   Widget _importTile() {
-    return _tileShell(
+    return InkWell(
       key: const ValueKey('import_obj_tile'),
-      onTap: _busy ? null : _importObj,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: const [
-          Icon(Icons.add_circle_outline,
-              color: JiajiaColors.accent, size: 26),
-          SizedBox(height: 4),
-          Text(
-            '导入模型…',
-            style: TextStyle(color: JiajiaColors.text1, fontSize: 12),
-          ),
-          Text('OBJ', style: TextStyle(color: JiajiaColors.text2, fontSize: 9)),
-        ],
+      borderRadius: BorderRadius.circular(10),
+      onTap: _busy ? null : _importInto,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: JiajiaColors.raised,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: JiajiaColors.line),
+        ),
+        child: const Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.add_circle_outline,
+                color: JiajiaColors.accent, size: 26),
+            SizedBox(height: 4),
+            Text(
+              '导入模型…',
+              style: TextStyle(color: JiajiaColors.text1, fontSize: 12),
+            ),
+            Text('OBJ / JSON',
+                style: TextStyle(color: JiajiaColors.text2, fontSize: 9)),
+          ],
+        ),
       ),
     );
   }
@@ -4493,10 +4471,11 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
   @override
   Widget build(BuildContext context) {
     final builtins = FurnitureTabs.ofCat(_cat);
-    // v0.1.37：「厨房」改名「厨卫」。旧库条目（v0.1.36 及以前导入）分类仍写着「厨房」，
-    // 若严格相等匹配会从抽屉里消失 → 厨卫 tab 一并收进来，避免老用户素材“丢件”。
+    // v0.1.38：用户模型按「叶子分类 = 家具 + subCat = 当前 tab」入网格。
+    // 旧条目（cat=卧室/书房/厨房…）不再混进家具 tab，统一收进「用户素材」菜单，
+    // 避免同一个模型在两个地方重复出现。
     final libs = _libs
-        .where((m) => m.cat == _cat || (_cat == '厨卫' && m.cat == '厨房'))
+        .where((m) => m.cat == ModelLeaves.furniture && m.subCat == _cat)
         .toList(growable: false);
     final total = builtins.length + libs.length;
     return DraggableScrollableSheet(
@@ -4583,6 +4562,7 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
 class _LibDraft {
   final String name;
   final String cat;
+  final String? subCat;
   final int wMm;
   final int dMm;
   final int hMm;
@@ -4590,13 +4570,15 @@ class _LibDraft {
   const _LibDraft({
     required this.name,
     required this.cat,
+    this.subCat,
     required this.wMm,
     required this.dMm,
     required this.hMm,
   });
 }
 
-/// 导入模型对话框：名称（默认文件名）+ 5 分类 ChoiceChips + W/D/H mm（bbox 预填）。
+/// 导入模型对话框：名称（默认文件名）+ 分类 chips（家具再带 subCat chips）
+/// + W/D/H mm（bbox 预填）。
 class _LibModelDialog extends StatefulWidget {
   final String defaultName;
   final int wMm;
@@ -4604,12 +4586,24 @@ class _LibModelDialog extends StatefulWidget {
   final int hMm;
   final int faceCount;
 
+  /// 可选目标分类（通常就一个：当前叶子菜单）；长度 >1 才显示 chips。
+  final List<String> cats;
+  final String initialCat;
+
+  /// 家具二级 tab（非家具传空 → 不显示 subCat 行）。
+  final List<String> subCats;
+  final String? initialSubCat;
+
   const _LibModelDialog({
     required this.defaultName,
     required this.wMm,
     required this.dMm,
     required this.hMm,
     required this.faceCount,
+    required this.cats,
+    required this.initialCat,
+    this.subCats = const [],
+    this.initialSubCat,
   });
 
   @override
@@ -4621,7 +4615,8 @@ class _LibModelDialogState extends State<_LibModelDialog> {
   late final TextEditingController _wC;
   late final TextEditingController _dC;
   late final TextEditingController _hC;
-  String _cat = FurnitureTabs.cats.first;
+  late String _cat;
+  String? _subCat;
 
   @override
   void initState() {
@@ -4630,6 +4625,9 @@ class _LibModelDialogState extends State<_LibModelDialog> {
     _wC = TextEditingController(text: '${widget.wMm}');
     _dC = TextEditingController(text: '${widget.dMm}');
     _hC = TextEditingController(text: '${widget.hMm}');
+    _cat = widget.initialCat;
+    _subCat = widget.initialSubCat ??
+        (widget.subCats.isEmpty ? null : widget.subCats.first);
   }
 
   @override
@@ -4665,7 +4663,14 @@ class _LibModelDialogState extends State<_LibModelDialog> {
     }
     Navigator.pop(
       context,
-      _LibDraft(name: name, cat: _cat, wMm: w, dMm: d, hMm: h),
+      _LibDraft(
+        name: name,
+        cat: _cat,
+        subCat: _subCat,
+        wMm: w,
+        dMm: d,
+        hMm: h,
+      ),
     );
   }
 
@@ -4718,18 +4723,39 @@ class _LibModelDialogState extends State<_LibModelDialog> {
               style: const TextStyle(color: JiajiaColors.text3, fontSize: 10),
             ),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final cat in FurnitureTabs.cats)
-                  ChoiceChip(
-                    label: Text(cat, style: const TextStyle(fontSize: 11)),
-                    selected: _cat == cat,
-                    onSelected: (_) => setState(() => _cat = cat),
-                  ),
-              ],
-            ),
+            if (widget.cats.length > 1)
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final cat in widget.cats)
+                    ChoiceChip(
+                      label: Text(cat, style: const TextStyle(fontSize: 11)),
+                      selected: _cat == cat,
+                      onSelected: (_) => setState(() => _cat = cat),
+                    ),
+                ],
+              ),
+            if (widget.subCats.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                '家具分类（$_cat）',
+                style: const TextStyle(color: JiajiaColors.text3, fontSize: 10),
+              ),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final sub in widget.subCats)
+                    ChoiceChip(
+                      label: Text(sub, style: const TextStyle(fontSize: 11)),
+                      selected: _subCat == sub,
+                      onSelected: (_) => setState(() => _subCat = sub),
+                    ),
+                ],
+              ),
+            ],
             const SizedBox(height: 12),
             Row(
               children: [
@@ -4754,6 +4780,596 @@ class _LibModelDialogState extends State<_LibModelDialog> {
           ),
         ),
       ],
+    );
+  }
+}
+
+
+// ---------------- v0.1.38 模型导入/导出：共用流程与 sheet ----------------
+
+/// 文件名 → 默认模型名（去目录、去 .obj/.json）。SAF 返回的 name 通常只有文件名。
+String _baseNameOf(String name) {
+  final slash = name.lastIndexOf(RegExp(r'[\\/]'));
+  var base = slash >= 0 ? name.substring(slash + 1) : name;
+  final dot = base.lastIndexOf('.');
+  if (dot > 0) base = base.substring(0, dot);
+  base = base.trim();
+  return base.isEmpty ? '库模型' : base;
+}
+
+/// 异常文本截断（平台异常可能带一大段通道信息，SnackBar 只看前 80 字）。
+String _shortErr(Object e) {
+  final s = e.toString();
+  return s.length > 80 ? '${s.substring(0, 80)}…' : s;
+}
+
+void _snackOf(BuildContext context, String m) {
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  if (messenger == null) return;
+  messenger.hideCurrentSnackBar();
+  messenger.showSnackBar(SnackBar(content: Text(m)));
+}
+
+enum ModelImportStatus { added, duplicate, rejected }
+
+class _ModelImportOutcome {
+  final ModelImportStatus status;
+  final LibModel? model;
+  final String? message;
+
+  const _ModelImportOutcome(this.status, {this.model, this.message});
+}
+
+/// 导入一个已选文件（.obj 或单件 JSON）：
+///   1) 读文本；JSON → 解析 + 闸 + id 去重；OBJ → 闸 + 命名/尺寸对话框；
+///   2) 归属以当前菜单为准（cat/subCat 由调用方给），文件里的 cat 不覆盖菜单。
+/// 返回 null = 用户取消（不提示）。
+Future<_ModelImportOutcome?> _runModelImportFlow({
+  required BuildContext context,
+  required LibModelsStore store,
+  required String cat,
+  String? subCat,
+  required PlatformFile file,
+}) async {
+  String text;
+  try {
+    text = await ModelFiles.readText(file);
+  } catch (e) {
+    return _ModelImportOutcome(
+      ModelImportStatus.rejected,
+      message: '读取文件失败：${_shortErr(e)}',
+    );
+  }
+
+  // ---- 单件模型 JSON（顶层 `{`）----
+  if (text.trimLeft().startsWith('{')) {
+    ModelTransferItem item;
+    try {
+      item = ModelTransferCodec.decodeSingle(text);
+    } on FormatException catch (e) {
+      return _ModelImportOutcome(
+        ModelImportStatus.rejected,
+        message: e.message,
+      );
+    } catch (e) {
+      return _ModelImportOutcome(
+        ModelImportStatus.rejected,
+        message: '单模型 JSON 解析失败：${_shortErr(e)}',
+      );
+    }
+    try {
+      final r = await SingleModelImporter.add(
+        store,
+        item.retarget(cat: cat, subCat: subCat),
+      );
+      return switch (r.status) {
+        SingleImportStatus.added => _ModelImportOutcome(
+            ModelImportStatus.added,
+            model: r.model,
+          ),
+        SingleImportStatus.duplicate => _ModelImportOutcome(
+            ModelImportStatus.duplicate,
+            model: r.model,
+          ),
+        SingleImportStatus.rejected => _ModelImportOutcome(
+            ModelImportStatus.rejected,
+            message: r.message,
+          ),
+      };
+    } catch (e) {
+      return _ModelImportOutcome(
+        ModelImportStatus.rejected,
+        message: '入库失败：${_shortErr(e)}',
+      );
+    }
+  }
+
+  // ---- OBJ ----
+  ObjData data;
+  try {
+    data = ObjParser.parse(text);
+  } on ObjParseException catch (e) {
+    return _ModelImportOutcome(ModelImportStatus.rejected, message: e.message);
+  } catch (e) {
+    return _ModelImportOutcome(
+      ModelImportStatus.rejected,
+      message: 'OBJ 解析失败：${_shortErr(e)}',
+    );
+  }
+  if (!context.mounted) return null;
+  final draft = await showDialog<_LibDraft>(
+    context: context,
+    builder: (_) => _LibModelDialog(
+      defaultName: _baseNameOf(file.name),
+      wMm: data.wMm,
+      dMm: data.dMm,
+      hMm: data.hMm,
+      faceCount: data.faceCount,
+      cats: [cat],
+      initialCat: cat,
+      subCats: cat == ModelLeaves.furniture ? FurnitureTabs.cats : const [],
+      initialSubCat: subCat,
+    ),
+  );
+  if (draft == null) return null;
+  final id = LibModel.newImportId(_baseNameOf(file.name));
+  final model = LibModel(
+    id: id,
+    name: draft.name,
+    cat: draft.cat,
+    subCat: draft.subCat,
+    wM: draft.wMm / 1000,
+    dM: draft.dMm / 1000,
+    hM: draft.hMm / 1000,
+    color: ModelLeaves.defaultColor(id),
+    objText: text,
+  );
+  try {
+    final list = await store.add(model);
+    final saved = list.firstWhere(
+      (m) => m.id == model.id,
+      orElse: () => model,
+    );
+    return _ModelImportOutcome(ModelImportStatus.added, model: saved);
+  } catch (e) {
+    return _ModelImportOutcome(
+      ModelImportStatus.rejected,
+      message: '入库失败：${_shortErr(e)}',
+    );
+  }
+}
+
+/// 网格里的「导入」tile（模块各叶子菜单 / 用户素材共用）。
+class _ModelImportTile extends StatelessWidget {
+  final String cat;
+  final String? subCat;
+  final bool busy;
+  final VoidCallback onTap;
+
+  const _ModelImportTile({
+    required this.cat,
+    this.subCat,
+    required this.busy,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      key: ValueKey('import_tile_${cat}_${subCat ?? ''}'),
+      borderRadius: BorderRadius.circular(10),
+      onTap: busy ? null : onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: JiajiaColors.raised,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: JiajiaColors.line),
+        ),
+        child: const Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.add_circle_outline,
+                color: JiajiaColors.accent, size: 26),
+            SizedBox(height: 4),
+            Text(
+              '导入模型…',
+              style: TextStyle(color: JiajiaColors.text1, fontSize: 12),
+            ),
+            Text(
+              'OBJ / JSON',
+              style: TextStyle(color: JiajiaColors.text2, fontSize: 9),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 模块二级素材网格（门/窗/梁柱/楼梯/特殊墙窗/庭院）。
+/// 网格 = 导入 tile + 系统素材 + 同叶子分类的用户模型；长按 tile 导出单件 JSON。
+class _ModelMenuSheet extends StatefulWidget {
+  final String cat;
+  final String? subCat;
+  final List<ModelSpec> items;
+  final LibModelsStore libStore;
+  final ValueChanged<ModelSpec> onPickSpec;
+  final ValueChanged<LibModel> onPickLib;
+  final VoidCallback onBack;
+
+  const _ModelMenuSheet({
+    required this.cat,
+    required this.items,
+    required this.libStore,
+    required this.onPickSpec,
+    required this.onPickLib,
+    required this.onBack,
+    this.subCat,
+  });
+
+  @override
+  State<_ModelMenuSheet> createState() => _ModelMenuSheetState();
+}
+
+class _ModelMenuSheetState extends State<_ModelMenuSheet> {
+  List<LibModel> _libs = const <LibModel>[];
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  Future<void> _reload() async {
+    List<LibModel> out;
+    try {
+      out = await widget.libStore.load();
+    } catch (_) {
+      out = const <LibModel>[];
+    }
+    if (!mounted) return;
+    setState(() => _libs = out);
+  }
+
+  Future<void> _import() async {
+    if (_busy) return;
+    PlatformFile? file;
+    try {
+      file = await ModelFiles.pickModelFile(dialogTitle: '导入模型');
+    } catch (e) {
+      if (!mounted) return;
+      _snackOf(context, '打不开文件选择器：${_shortErr(e)}');
+      return;
+    }
+    if (file == null) return;
+    if (!mounted) return;
+    setState(() => _busy = true);
+    final out = await _runModelImportFlow(
+      context: context,
+      store: widget.libStore,
+      cat: widget.cat,
+      subCat: widget.subCat,
+      file: file,
+    );
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (out == null) return;
+    switch (out.status) {
+      case ModelImportStatus.added:
+        await _reload();
+        if (!mounted) return;
+        _snackOf(context, '已导入「${out.model?.name ?? ''}」');
+      case ModelImportStatus.duplicate:
+        _snackOf(context, '已在库中：${out.model?.name ?? ''}（id 重复，已跳过）');
+      case ModelImportStatus.rejected:
+        _snackOf(context, out.message ?? '导入失败');
+    }
+  }
+
+  Future<void> _exportSpec(ModelSpec m) async {
+    try {
+      final item = await ModelExport.forSpec(
+        m,
+        cat: widget.cat,
+        subCat: widget.subCat,
+      );
+      final where = await ModelExport.save(item);
+      if (where == null || !mounted) return;
+      _snackOf(context, '已导出「${item.name}」单件模型 → $where');
+    } catch (e) {
+      _snackOf(context, '导出失败：${_shortErr(e)}');
+    }
+  }
+
+  Future<void> _exportLibTile(LibModel m) async {
+    try {
+      final where = await ModelExport.save(ModelExport.forLib(m));
+      if (where == null || !mounted) return;
+      _snackOf(context, '已导出「${m.name}」单件模型 → $where');
+    } catch (e) {
+      _snackOf(context, '导出失败：${_shortErr(e)}');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final libs = _libs
+        .where(
+          (m) =>
+              m.cat == widget.cat &&
+              (widget.subCat == null || m.subCat == widget.subCat),
+        )
+        .toList(growable: false);
+    final total = widget.items.length + libs.length;
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.6,
+      minChildSize: 0.4,
+      maxChildSize: 0.9,
+      builder: (c, sc) => ListView(
+        controller: sc,
+        padding: const EdgeInsets.all(12),
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${widget.cat} · 素材（$total 件）',
+                  style: const TextStyle(
+                    color: JiajiaColors.text1,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                key: ValueKey('import_btn_${widget.cat}'),
+                onPressed: _busy ? null : _import,
+                icon: const Icon(Icons.add, size: 14,
+                    color: JiajiaColors.accent),
+                label: const Text('导入', style: TextStyle(fontSize: 12)),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  widget.onBack();
+                },
+                child: const Text('← 模块', style: TextStyle(fontSize: 12)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              mainAxisSpacing: 8,
+            ),
+            itemCount: 1 + total,
+            itemBuilder: (_, j) {
+              if (j == 0) {
+                return _ModelImportTile(
+                  cat: widget.cat,
+                  subCat: widget.subCat,
+                  busy: _busy,
+                  onTap: _import,
+                );
+              }
+              final n = j - 1;
+              if (n < widget.items.length) {
+                final m = widget.items[n];
+                return ModelTile(
+                  key: ValueKey('spec_tile_${m.id}'),
+                  label: m.label,
+                  specText: m.specText,
+                  iconPath: m.icon,
+                  fallbackIcon: m.place == ModelPlace.wall
+                      ? Icons.open_in_full
+                      : Icons.category,
+                  credit: m.credit,
+                  onTap: () {
+                    Navigator.pop(context);
+                    widget.onPickSpec(m);
+                  },
+                  onLongPress: () => _exportSpec(m),
+                );
+              }
+              final m = libs[n - widget.items.length];
+              return ModelTile(
+                key: ValueKey('lib_tile_${m.id}'),
+                label: m.name,
+                specText: _libSpecText(m),
+                fallbackIcon: Icons.view_in_ar,
+                isUser: true,
+                onTap: () {
+                  Navigator.pop(context);
+                  widget.onPickLib(m);
+                },
+                onLongPress: () => _exportLibTile(m),
+              );
+            },
+          ),
+          // CC-BY 素材完整署名（app 无「关于/设置」页，落在素材 sheet 底部）
+          if (widget.items.any((m) => m.credit != null)) ...[
+            const SizedBox(height: 10),
+            const Divider(height: 1, color: JiajiaColors.line),
+            const SizedBox(height: 6),
+            Text(
+              '3D 素材署名：${widget.items.where((m) => m.credit != null).map((m) => '${m.label} — ${m.credit}').join('；')}',
+              style: const TextStyle(color: JiajiaColors.text2, fontSize: 9),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 用户模型尺寸文案（米，一位/两位小数）。
+String _libSpecText(LibModel m) {
+  String f(double v) =>
+      v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
+  return '${f(m.wM)}×${f(m.dM)}×${f(m.hM)}m';
+}
+
+/// 「用户素材」菜单：无分类（cat 空/未知）与 cat=用户素材 的用户模型。
+class _UserAssetsSheet extends StatefulWidget {
+  final LibModelsStore libStore;
+  final ValueChanged<LibModel> onPick;
+  final VoidCallback onBack;
+
+  const _UserAssetsSheet({
+    required this.libStore,
+    required this.onPick,
+    required this.onBack,
+  });
+
+  @override
+  State<_UserAssetsSheet> createState() => _UserAssetsSheetState();
+}
+
+class _UserAssetsSheetState extends State<_UserAssetsSheet> {
+  List<LibModel> _libs = const <LibModel>[];
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  Future<void> _reload() async {
+    List<LibModel> out;
+    try {
+      out = await widget.libStore.load();
+    } catch (_) {
+      out = const <LibModel>[];
+    }
+    if (!mounted) return;
+    setState(() => _libs = out);
+  }
+
+  Future<void> _import() async {
+    if (_busy) return;
+    PlatformFile? file;
+    try {
+      file = await ModelFiles.pickModelFile(dialogTitle: '导入用户素材');
+    } catch (e) {
+      if (!mounted) return;
+      _snackOf(context, '打不开文件选择器：${_shortErr(e)}');
+      return;
+    }
+    if (file == null) return;
+    if (!mounted) return;
+    setState(() => _busy = true);
+    final out = await _runModelImportFlow(
+      context: context,
+      store: widget.libStore,
+      cat: ModelLeaves.userAssets,
+      file: file,
+    );
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (out == null) return;
+    switch (out.status) {
+      case ModelImportStatus.added:
+        await _reload();
+        if (!mounted) return;
+        _snackOf(context, '已导入「${out.model?.name ?? ''}」');
+      case ModelImportStatus.duplicate:
+        _snackOf(context, '已在库中：${out.model?.name ?? ''}（id 重复，已跳过）');
+      case ModelImportStatus.rejected:
+        _snackOf(context, out.message ?? '导入失败');
+    }
+  }
+
+  Future<void> _export(LibModel m) async {
+    try {
+      final where = await ModelExport.save(ModelExport.forLib(m));
+      if (where == null || !mounted) return;
+      _snackOf(context, '已导出「${m.name}」单件模型 → $where');
+    } catch (e) {
+      _snackOf(context, '导出失败：${_shortErr(e)}');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final libs = LibModelsStore.userAssetsOf(_libs);
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.6,
+      minChildSize: 0.4,
+      maxChildSize: 0.9,
+      builder: (c, sc) => ListView(
+        controller: sc,
+        padding: const EdgeInsets.all(12),
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '用户素材（${libs.length} 件）',
+                  style: const TextStyle(
+                    color: JiajiaColors.text1,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                key: const ValueKey('import_btn_用户素材'),
+                onPressed: _busy ? null : _import,
+                icon: const Icon(Icons.add, size: 14,
+                    color: JiajiaColors.accent),
+                label: const Text('导入', style: TextStyle(fontSize: 12)),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  widget.onBack();
+                },
+                child: const Text('← 模块', style: TextStyle(fontSize: 12)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              mainAxisSpacing: 8,
+            ),
+            itemCount: 1 + libs.length,
+            itemBuilder: (_, j) {
+              if (j == 0) {
+                return _ModelImportTile(
+                  cat: ModelLeaves.userAssets,
+                  busy: _busy,
+                  onTap: _import,
+                );
+              }
+              final m = libs[j - 1];
+              return ModelTile(
+                key: ValueKey('lib_tile_${m.id}'),
+                label: m.name,
+                specText: _libSpecText(m),
+                fallbackIcon: Icons.view_in_ar,
+                isUser: true,
+                onTap: () {
+                  Navigator.pop(context);
+                  widget.onPick(m);
+                },
+                onLongPress: () => _export(m),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 }
