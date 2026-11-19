@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,9 +9,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/theme.dart';
 import '../../../diag/boot_log.dart' show bootLog;
 import '../domain/floor_plan.dart';
+import '../domain/furniture_tabs.dart';
 import '../domain/model_assets.dart';
 import '../domain/model_items.dart';
+import '../domain/obj_parse.dart';
 import '../state/editor_doc.dart';
+import '../state/lib_models_store.dart';
 import '../state/plan_io.dart';
 import 'plan_palette.dart';
 import '../../viewer3d/viewer3d_page.dart';
@@ -92,6 +96,9 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   String _roomsSig = '';
   List<RoomLoop> _rooms = const [];
   ModelSpec? _pendingModel; // 「模型」面板选中的待放置项（门/窗贴墙，柱/楼梯/台面摆地）
+  FurnitureKind? _pendingKind; // 「家具」抽屉选中的待放置家具种类（点画布放下 → 回选择）
+  String? _pendingLib; // kind=lib 时待放置的库模型 id（同一条放置路径，仅多带 lib）
+  (double, double, double)? _pendingLibDims; // 待放置库模型的 W/D/H（米）
   int? _mergeFrom; // 合并房：待合并的房间下标（点相邻房间完成）
   // 「建房」面板是否正在显示：独立于 _tool 的高亮状态，
   // 避免「建房」与「画墙」共用 EditorTool.wall 导致两个按钮同时点亮。
@@ -101,6 +108,18 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   void initState() {
     super.initState();
     bootLog.line('editor-init');
+    _warmLibNames();
+  }
+
+  /// 预热模型库名字缓存：2D 标注/操作条要显库模型名字（同步绘制，不能等 IO）。
+  /// 库文件缺失/平台不可用 → 静默忽略，2D 回退「库模型」。
+  Future<void> _warmLibNames() async {
+    try {
+      await LibModelsStore().load();
+    } catch (_) {
+      return;
+    }
+    if (mounted) setState(() {});
   }
 
   @override
@@ -438,6 +457,23 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                             side: const BorderSide(color: JiajiaColors.accent),
                           ),
                         )
+                      else if (_pendingKind != null)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: ActionChip(
+                            avatar: Icon(
+                              Icons.touch_app,
+                              size: 14,
+                              color: JiajiaColors.accent,
+                            ),
+                            label: Text(
+                              '放：${_pendingKindLabel()} → 点画布（放下后自动回选择）',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            backgroundColor: JiajiaColors.accentSoft,
+                            side: const BorderSide(color: JiajiaColors.accent),
+                          ),
+                        )
                       else
                         for (final k in FurnitureCatalog.kinds)
                           Padding(
@@ -448,8 +484,12 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                                 style: const TextStyle(fontSize: 12),
                               ),
                               selected: _furnKind == k,
-                              onSelected: (_) =>
-                                  setState(() => _furnKind = k),
+                              onSelected: (_) => setState(() {
+                                _furnKind = k;
+                                // 手动换目录内家具时清掉库模型待放置态，避免串件
+                                _pendingLib = null;
+                                _pendingLibDims = null;
+                              }),
                             ),
                           ),
                     ],
@@ -496,7 +536,12 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     _tool = t;
     _sel = null;
     _wallStart = _wallCur = null;
-    if (t != EditorTool.furniture) _pendingModel = null;
+    if (t != EditorTool.furniture) {
+      _pendingModel = null;
+      _pendingKind = null;
+      _pendingLib = null;
+      _pendingLibDims = null;
+    }
     _mergeFrom = null;
   });
 
@@ -539,9 +584,9 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   }
 
 
-  // ---------------- 模块（v0.1.17 二级菜单：门/窗/梁柱/楼梯/拆改/特殊墙窗） ----------------
+  // ---------------- 模块（二级菜单：门/窗/梁柱/楼梯/拆改/特殊墙窗/家具） ----------------
 
-  /// 模块一级菜单：6 个入口 → 二级素材网格 / 拆改面板。
+  /// 模块一级菜单：7 个入口 → 二级素材网格 / 家具抽屉 / 拆改面板。
   void _openModuleSheet() {
     showModalBottomSheet(
       context: context,
@@ -598,6 +643,8 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                   Icons.opacity,
                   () => _openModuleModelsSheet('特殊墙窗 · 素材', ModelItems.ofCategory('特殊墙窗')),
                 ),
+                // v0.1.31：第 7 入口「家具」→ 单 sheet（5 分类 chips + 素材网格）
+                _moduleEntry('家具', Icons.bed, _openFurnitureSheet),
               ],
             ),
           ],
@@ -730,6 +777,69 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
         ),
       ),
     );
+  }
+
+  /// 模块 → 家具：单个 sheet（5 分类 chips + 素材网格），不另开二级 sheet。
+  void _openFurnitureSheet() {
+    Navigator.pop(context); // 收一级菜单
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: JiajiaColors.surface,
+      builder: (_) => _FurnitureTabSheet(
+        onPick: _startPlacingTabItem,
+        onBack: _openModuleSheet,
+      ),
+    );
+  }
+
+  /// 家具抽屉选中一项 → 复用两条既有的放置路径（不合并）：
+  ///  · model 素材（梳妆台/暖气片）→ _startPlacingModel（floor 摆地，放下回选择）
+  ///  · kind 家具 → 工具切 furniture + 记 _pendingKind，点画布生成 FurnitureItem
+  void _startPlacingTabItem(FurnitureTabItem it) {
+    final m = it.model;
+    if (m != null) {
+      _startPlacingModel(m);
+      return;
+    }
+    if (it.isLib) {
+      _startPlacingLibItem(it);
+      return;
+    }
+    final k = it.kind;
+    if (k == null) return;
+    _setTool(EditorTool.furniture);
+    setState(() {
+      _furnKind = k;
+      _pendingKind = k;
+      _pendingLib = null;
+      _pendingLibDims = null;
+    });
+    _toast('放置「${it.label}」：点画布摆放（放下后自动回选择）');
+  }
+
+  /// 模型库条目（kind=lib）：与 kind 家具同一条放置路径（_placeKindItem），
+  /// 只是额外带上 lib id 与库尺寸（放下后可双击改尺寸）。
+  void _startPlacingLibItem(FurnitureTabItem it) {
+    _setTool(EditorTool.furniture);
+    setState(() {
+      _furnKind = FurnitureKind.lib;
+      _pendingKind = FurnitureKind.lib;
+      _pendingLib = it.libId;
+      _pendingLibDims = (it.libW ?? 1.0, it.libD ?? 0.6, it.libH ?? 1.0);
+    });
+    _toast('放置「${it.label}」（库模型）：点画布摆放（放下后自动回选择）');
+  }
+
+  /// 待放置项标题：库模型显示库里的名字，其余按目录 label。
+  String _pendingKindLabel() {
+    final k = _pendingKind;
+    if (k == null) return '';
+    if (k == FurnitureKind.lib) {
+      return LibModelsStore.nameOf(_pendingLib) ??
+          FurnitureCatalog.labelOf(k);
+    }
+    return FurnitureCatalog.labelOf(k);
   }
 
   /// 模块 → 拆改：分房间（先做）/ 合并房间（待上线）。
@@ -891,6 +1001,36 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       _setTool(EditorTool.select);
       setState(() => _sel = _Sel(fid, 'item')); // 保留选中新件（_setTool 会清 _sel）
     }
+  }
+
+  /// 家具抽屉选的 kind：点画布放下 → 生成 FurnitureItem 并自动回「选择」（铁律）。
+  void _placeKindItem(Offset local, FloorPlan plan) {
+    final k = _pendingKind;
+    if (k == null) return;
+    final libId = k == FurnitureKind.lib ? _pendingLib : null;
+    final dims = libId == null ? null : _pendingLibDims;
+    final notifier = ref.read(editorDocProvider.notifier);
+    final world = _cam.toWorld(local);
+    final fid = plan.newId('i');
+    notifier.mutate((p) {
+      p.items[fid] = FurnitureItem(
+        id: fid,
+        kind: k,
+        pos: _snapPoint(world, plan),
+        // 库模型：记 lib id + 库尺寸（用户双击可改）；其它 kind 保持默认尺寸
+        lib: libId,
+        sizeW: dims?.$1,
+        sizeD: dims?.$2,
+        sizeH: dims?.$3,
+      );
+      _sel = _Sel(fid, 'item');
+    });
+    final label = libId == null
+        ? FurnitureCatalog.labelOf(k)
+        : (LibModelsStore.nameOf(libId) ?? FurnitureCatalog.labelOf(k));
+    _toast('已放「$label」（已回选择，点中后可拖动位置）');
+    _setTool(EditorTool.select);
+    setState(() => _sel = _Sel(fid, 'item')); // 保留选中新件（_setTool 会清 _sel）
   }
 
   /// 画布（CustomPaint）相对全局的左上角。
@@ -1464,6 +1604,8 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       case EditorTool.furniture:
         if (_pendingModel != null) {
           _placeModelItem(local, plan);
+        } else if (_pendingKind != null) {
+          _placeKindItem(local, plan);
         } else {
           notifier.mutate((p) {
             final id = p.newId('i');
@@ -1807,6 +1949,19 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   }
 }
 
+/// 物品显示名：素材模型 > 库模型（含缓存回退）> 目录 label。
+/// 2D 标注 / 操作条 / 编辑面板三处共用，避免三份不一致。
+String _itemLabelOf(FurnitureItem i) {
+  final mid = i.modelId;
+  if (mid != null) {
+    return ModelAssets.byId(mid)?.label ?? FurnitureCatalog.labelOf(i.kind);
+  }
+  if (i.kind == FurnitureKind.lib) {
+    return LibModelsStore.nameOf(i.lib) ?? FurnitureCatalog.labelOf(i.kind);
+  }
+  return FurnitureCatalog.labelOf(i.kind);
+}
+
 /// 选中家具/模型件的操作条：删除/取消（底栏删除工具并入后的件删除入口）。
 class _ItemActionBar extends ConsumerWidget {
   final String itemId;
@@ -1826,9 +1981,7 @@ class _ItemActionBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final item = plan.items[itemId];
     if (item == null) return const SizedBox.shrink();
-    final label = item.modelId == null
-        ? FurnitureCatalog.labelOf(item.kind)
-        : (ModelAssets.byId(item.modelId!)?.label ?? item.kind.name);
+    final label = _itemLabelOf(item);
     return Container(
       color: JiajiaColors.raised,
       child: SafeArea(
@@ -2973,9 +3126,7 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
         child: Text('该件已不存在', style: TextStyle(color: JiajiaColors.text2)),
       );
     }
-    final label = item.modelId == null
-        ? FurnitureCatalog.labelOf(item.kind)
-        : (ModelAssets.byId(item.modelId!)?.label ?? item.kind.name);
+    final label = _itemLabelOf(item);
     final isStair = _isStairKind(item.kind);
     // 坑⑤：sheet 内容必须 DraggableScrollableSheet（与 _WallDialog 同款）
     return DraggableScrollableSheet(
@@ -3513,10 +3664,7 @@ class _PlanPainter extends CustomPainter {
             ..strokeWidth = selected ? 2.5 : 1.5,
         );
       }
-      final label = i.modelId == null
-          ? FurnitureCatalog.labelOf(i.kind)
-          : (ModelAssets.byId(i.modelId!)?.label ??
-                FurnitureCatalog.labelOf(i.kind));
+      final label = _itemLabelOf(i);
       final tp = TextPainter(
         text: TextSpan(
           text: label,
@@ -3789,6 +3937,683 @@ class _RoomDialogState extends ConsumerState<_RoomDialog> {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ---------------- 模块 → 家具 抽屉 ----------------
+
+/// 「家具」抽屉：一个 sheet 内 5 个分类 chips + 素材网格，切 chip 换列表。
+/// 几何与 _WallDialog 同款（DSS expand:false + ListView），避免 sheet 高度错乱。
+class _FurnitureTabSheet extends StatefulWidget {
+  final ValueChanged<FurnitureTabItem> onPick;
+  final VoidCallback onBack;
+
+  const _FurnitureTabSheet({required this.onPick, required this.onBack});
+
+  @override
+  State<_FurnitureTabSheet> createState() => _FurnitureTabSheetState();
+}
+
+class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
+  String _cat = FurnitureTabs.cats.first; // 默认「卧室」
+  List<LibModel> _libs = const <LibModel>[];
+  bool _busy = false; // 导入/导出进行中：防连点、禁再开文件框
+
+  @override
+  void initState() {
+    super.initState();
+    _reloadLibs();
+  }
+
+  /// 重读模型库（失败 → 空表，sheet 照常可用；单测无 path_provider 时也走这里）。
+  Future<void> _reloadLibs() async {
+    List<LibModel> out;
+    try {
+      out = await LibModelsStore().load();
+    } catch (_) {
+      out = const <LibModel>[];
+    }
+    if (!mounted) return;
+    setState(() => _libs = out);
+  }
+
+  void _snack(String m) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(SnackBar(content: Text(m)));
+  }
+
+  /// 异常文本截断（平台异常可能带一大段通道信息，SnackBar 只看前 80 字）。
+  String _errText(Object e) {
+    final s = e.toString();
+    return s.length > 80 ? '${s.substring(0, 80)}…' : s;
+  }
+
+  /// 文件名 → 默认模型名（去目录、去 .obj）。SAF 返回的 name 通常已只有文件名。
+  String _baseName(String name) {
+    final slash = name.lastIndexOf(RegExp(r'[\\/]'));
+    var base = slash >= 0 ? name.substring(slash + 1) : name;
+    final dot = base.lastIndexOf('.');
+    if (dot > 0) base = base.substring(0, dot);
+    base = base.trim();
+    return base.isEmpty ? '库模型' : base;
+  }
+
+  /// 家具 kind 的占位图标（assets/models2d 里没有家具图标，与原二级网格一致用 Icon）。
+  IconData _iconOf(FurnitureTabItem it) {
+    final k = it.kind;
+    switch (k) {
+      case FurnitureKind.sofa:
+        return Icons.weekend;
+      case FurnitureKind.bed:
+        return Icons.bed;
+      case FurnitureKind.table:
+        return Icons.table_restaurant;
+      case FurnitureKind.chair:
+        return Icons.chair;
+      case FurnitureKind.wardrobe:
+        return Icons.checkroom;
+      case FurnitureKind.tv:
+        return Icons.tv;
+      case FurnitureKind.plant:
+        return Icons.local_florist;
+      case FurnitureKind.desk:
+        return Icons.desk;
+      case FurnitureKind.stool:
+        return Icons.event_seat;
+      case FurnitureKind.fridge:
+        return Icons.kitchen;
+      case FurnitureKind.washer:
+        return Icons.local_laundry_service;
+      case FurnitureKind.heater:
+        return Icons.thermostat;
+      case FurnitureKind.stove:
+        return Icons.local_fire_department;
+      case FurnitureKind.hood:
+        return Icons.air;
+      case FurnitureKind.sink:
+        return Icons.water_drop;
+      case FurnitureKind.microwave:
+        return Icons.microwave;
+      case FurnitureKind.oven:
+        return Icons.local_dining;
+      case FurnitureKind.coffee:
+        return Icons.coffee;
+      case FurnitureKind.shoe:
+        return Icons.inventory_2;
+      case FurnitureKind.shelf:
+        return Icons.inventory_2;
+      default:
+        return Icons.category;
+    }
+  }
+
+  // ---------------- 导入 OBJ → 校验 → 命名/分类/尺寸 → 入库 ----------------
+
+  Future<void> _importObj() async {
+    if (_busy) return;
+    PlatformFile? file;
+    try {
+      file = await FilePicker.pickFile(
+        dialogTitle: '导入 OBJ 模型',
+        type: FileType.custom,
+        allowedExtensions: const ['obj'],
+      );
+    } catch (e) {
+      // 平台通道不可用（widget 测试/桌面预览）→ 提示，不崩
+      _snack('打不开文件选择器：${_errText(e)}');
+      return;
+    }
+    if (file == null) return; // 用户取消
+    String text;
+    try {
+      text = utf8.decode(await file.readAsBytes(), allowMalformed: true);
+    } catch (e) {
+      _snack('读取文件失败：${_errText(e)}');
+      return;
+    }
+    ObjData data;
+    try {
+      data = ObjParser.parse(text);
+    } on ObjParseException catch (e) {
+      _snack(e.message);
+      return;
+    } catch (e) {
+      _snack('OBJ 解析失败：${_errText(e)}');
+      return;
+    }
+    if (!mounted) return;
+    final draft = await showDialog<_LibDraft>(
+      context: context,
+      builder: (_) => _LibModelDialog(
+        defaultName: _baseName(file!.name),
+        wMm: data.wMm,
+        dMm: data.dMm,
+        hMm: data.hMm,
+        faceCount: data.faceCount,
+      ),
+    );
+    if (draft == null || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      final model = LibModel(
+        id: LibModel.idForText(text),
+        name: draft.name,
+        cat: draft.cat,
+        wM: draft.wMm / 1000,
+        dM: draft.dMm / 1000,
+        hM: draft.hMm / 1000,
+        objText: text,
+      );
+      final list = await LibModelsStore().add(model);
+      if (!mounted) return;
+      LibModel? saved;
+      for (final m in list) {
+        if (m.id == model.id) {
+          saved = m;
+          break;
+        }
+      }
+      setState(() {
+        _libs = list;
+        _cat = draft.cat; // 切到刚导入的分类，用户能立刻看到新 tile
+        _busy = false;
+      });
+      _snack(saved == null ? '已在库中：${model.name}' : '已导入「${saved.name}」');
+    } catch (e) {
+      if (mounted) setState(() => _busy = false);
+      _snack('入库失败：${_errText(e)}');
+    }
+  }
+
+  // ---------------- 模型库导出 / 导入（P3） ----------------
+
+  Future<void> _exportLib() async {
+    if (_busy) return;
+    List<LibModel> models;
+    try {
+      models = await LibModelsStore().load();
+    } catch (_) {
+      models = _libs;
+    }
+    setState(() => _busy = true);
+    try {
+      final json = LibModelsCodec.encodeExport(models);
+      final saved = await FilePicker.saveFile(
+        dialogTitle: '导出模型库',
+        fileName: 'jiajia_models.json',
+        bytes: Uint8List.fromList(utf8.encode(json)),
+        mimeType: 'application/json',
+      );
+      if (!mounted) return;
+      setState(() => _busy = false);
+      if (saved == null) return; // 用户取消
+      final where = PlanIo.displayLocation(saved, 'jiajia_models.json');
+      _snack(models.isEmpty
+          ? '模型库为空：已导出 0 条（可导入到其他设备累积）→ $where'
+          : '已导出 ${models.length} 条模型 → $where');
+    } catch (e) {
+      if (mounted) setState(() => _busy = false);
+      _snack('导出失败：${_errText(e)}');
+    }
+  }
+
+  Future<void> _importLibFile() async {
+    if (_busy) return;
+    PlatformFile? file;
+    try {
+      file = await FilePicker.pickFile(
+        dialogTitle: '导入模型库',
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+      );
+    } catch (e) {
+      _snack('打不开文件选择器：${_errText(e)}');
+      return;
+    }
+    if (file == null) return;
+    LibImportPayload payload;
+    try {
+      final txt = utf8.decode(await file.readAsBytes(), allowMalformed: true);
+      payload = LibModelsCodec.decodeImport(txt);
+    } on FormatException catch (e) {
+      _snack(e.message);
+      return;
+    } catch (e) {
+      _snack('读取模型库失败：${_errText(e)}');
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final store = LibModelsStore();
+      final existing = await store.load();
+      final merged = LibModelsStore.merge(existing, payload.models);
+      await store.save(merged.models);
+      if (!mounted) return;
+      setState(() {
+        _libs = merged.models;
+        _busy = false;
+      });
+      final tail = payload.invalid > 0 ? '，${payload.invalid} 条无效' : '';
+      _snack('导入 ${merged.added} 条，跳过 ${merged.skipped} 条重复$tail');
+    } catch (e) {
+      if (mounted) setState(() => _busy = false);
+      _snack('导入失败：${_errText(e)}');
+    }
+  }
+
+  // ---------------- 网格 tile ----------------
+
+  Widget _tileShell({required Widget child, VoidCallback? onTap, Key? key}) {
+    return InkWell(
+      key: key,
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: JiajiaColors.raised,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: JiajiaColors.line),
+        ),
+        child: child,
+      ),
+    );
+  }
+
+  Widget _builtinTile(FurnitureTabItem it) {
+    final icon = it.icon;
+    return _tileShell(
+      onTap: () {
+        Navigator.pop(context);
+        widget.onPick(it);
+      },
+      child: Column(
+        children: [
+          if (icon != null)
+            Image.asset(
+              icon,
+              width: 34,
+              height: 34,
+              fit: BoxFit.contain,
+              errorBuilder: (_, _, _) => Icon(
+                _iconOf(it),
+                color: JiajiaColors.text2,
+                size: 26,
+              ),
+            )
+          else
+            Icon(_iconOf(it), color: JiajiaColors.accent, size: 26),
+          const SizedBox(height: 4),
+          Text(
+            it.label,
+            style: const TextStyle(color: JiajiaColors.text1, fontSize: 12),
+          ),
+          Text(
+            it.specText,
+            style: TextStyle(color: JiajiaColors.text2, fontSize: 9),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 库模型 tile：右上角「库」角标；点按 → kind=lib 放置路径（带 lib id + 尺寸）。
+  Widget _libTile(LibModel m) {
+    final it = FurnitureTabItem(
+      ref: 'lib:${m.id}',
+      label: m.name,
+      libId: m.id,
+      libW: m.wM,
+      libD: m.dM,
+      libH: m.hM,
+    );
+    return _tileShell(
+      key: ValueKey('lib_tile_${m.id}'),
+      onTap: () {
+        Navigator.pop(context);
+        widget.onPick(it);
+      },
+      child: Stack(
+        children: [
+          Column(
+            children: [
+              const Icon(Icons.view_in_ar,
+                  color: JiajiaColors.accent, size: 26),
+              const SizedBox(height: 4),
+              Text(
+                m.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style:
+                    const TextStyle(color: JiajiaColors.text1, fontSize: 12),
+              ),
+              Text(
+                it.specText,
+                style: TextStyle(color: JiajiaColors.text2, fontSize: 9),
+              ),
+            ],
+          ),
+          Positioned(
+            top: 0,
+            right: 2,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(
+                color: JiajiaColors.accentSoft,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Text(
+                '库',
+                style: TextStyle(color: JiajiaColors.accent, fontSize: 8),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 固定 tile：导入外部 OBJ（每个分类下都出现，不随 chip 消失）。
+  Widget _importTile() {
+    return _tileShell(
+      key: const ValueKey('import_obj_tile'),
+      onTap: _busy ? null : _importObj,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: const [
+          Icon(Icons.add_circle_outline,
+              color: JiajiaColors.accent, size: 26),
+          SizedBox(height: 4),
+          Text(
+            '导入模型…',
+            style: TextStyle(color: JiajiaColors.text1, fontSize: 12),
+          ),
+          Text('OBJ', style: TextStyle(color: JiajiaColors.text2, fontSize: 9)),
+        ],
+      ),
+    );
+  }
+
+  Widget _headerButton(String label, IconData icon, VoidCallback? onTap) {
+    return TextButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 14, color: JiajiaColors.accent),
+      label: Text(
+        label,
+        style: const TextStyle(fontSize: 11, color: JiajiaColors.text1),
+      ),
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final builtins = FurnitureTabs.ofCat(_cat);
+    final libs = _libs.where((m) => m.cat == _cat).toList(growable: false);
+    final total = builtins.length + libs.length;
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.62,
+      minChildSize: 0.5,
+      maxChildSize: 0.85,
+      builder: (BuildContext c, ScrollController sc) => ListView(
+        controller: sc,
+        padding: const EdgeInsets.all(12),
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '家具 · $_cat（$total 件）',
+                  style: const TextStyle(
+                    color: JiajiaColors.text1,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  widget.onBack();
+                },
+                child: const Text('← 模块', style: TextStyle(fontSize: 12)),
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              _headerButton('导出模型库', Icons.ios_share, _busy ? null : _exportLib),
+              const SizedBox(width: 4),
+              _headerButton('导入模型库', Icons.file_download,
+                  _busy ? null : _importLibFile),
+              const Spacer(),
+              if (_busy)
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final cat in FurnitureTabs.cats)
+                ChoiceChip(
+                  label: Text(cat, style: const TextStyle(fontSize: 12)),
+                  selected: _cat == cat,
+                  onSelected: (_) => setState(() => _cat = cat),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              mainAxisSpacing: 8,
+            ),
+            itemCount: 1 + builtins.length + libs.length,
+            itemBuilder: (_, j) {
+              if (j == 0) return _importTile();
+              final n = j - 1;
+              if (n < builtins.length) return _builtinTile(builtins[n]);
+              return _libTile(libs[n - builtins.length]);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 导入 OBJ 的命名/分类/尺寸草稿。
+class _LibDraft {
+  final String name;
+  final String cat;
+  final int wMm;
+  final int dMm;
+  final int hMm;
+
+  const _LibDraft({
+    required this.name,
+    required this.cat,
+    required this.wMm,
+    required this.dMm,
+    required this.hMm,
+  });
+}
+
+/// 导入模型对话框：名称（默认文件名）+ 5 分类 ChoiceChips + W/D/H mm（bbox 预填）。
+class _LibModelDialog extends StatefulWidget {
+  final String defaultName;
+  final int wMm;
+  final int dMm;
+  final int hMm;
+  final int faceCount;
+
+  const _LibModelDialog({
+    required this.defaultName,
+    required this.wMm,
+    required this.dMm,
+    required this.hMm,
+    required this.faceCount,
+  });
+
+  @override
+  State<_LibModelDialog> createState() => _LibModelDialogState();
+}
+
+class _LibModelDialogState extends State<_LibModelDialog> {
+  late final TextEditingController _nameC;
+  late final TextEditingController _wC;
+  late final TextEditingController _dC;
+  late final TextEditingController _hC;
+  String _cat = FurnitureTabs.cats.first;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameC = TextEditingController(text: widget.defaultName);
+    _wC = TextEditingController(text: '${widget.wMm}');
+    _dC = TextEditingController(text: '${widget.dMm}');
+    _hC = TextEditingController(text: '${widget.hMm}');
+  }
+
+  @override
+  void dispose() {
+    for (final c in [_nameC, _wC, _dC, _hC]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  void _msg(String m) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.hideCurrentSnackBar();
+    messenger?.showSnackBar(SnackBar(content: Text(m)));
+  }
+
+  int? _mm(TextEditingController c) {
+    final v = int.tryParse(c.text.trim());
+    if (v == null || v < 1 || v > 50000) return null;
+    return v;
+  }
+
+  void _ok() {
+    final name = _nameC.text.trim();
+    if (name.isEmpty) {
+      _msg('模型名称不能为空');
+      return;
+    }
+    final w = _mm(_wC), d = _mm(_dC), h = _mm(_hC);
+    if (w == null || d == null || h == null) {
+      _msg('尺寸需 1~50000 的整数（单位 mm）');
+      return;
+    }
+    Navigator.pop(
+      context,
+      _LibDraft(name: name, cat: _cat, wMm: w, dMm: d, hMm: h),
+    );
+  }
+
+  Widget _mmField(String label, TextEditingController c) => Expanded(
+        child: Padding(
+          padding: const EdgeInsets.only(right: 6),
+          child: TextField(
+            controller: c,
+            keyboardType: TextInputType.number,
+            style: const TextStyle(color: JiajiaColors.text1, fontSize: 13),
+            decoration: InputDecoration(
+              labelText: label,
+              labelStyle: const TextStyle(color: JiajiaColors.text3),
+              isDense: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: JiajiaColors.line),
+              ),
+            ),
+          ),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: JiajiaColors.surface,
+      title: const Text(
+        '导入模型',
+        style: TextStyle(color: JiajiaColors.text1, fontSize: 16),
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _nameC,
+              maxLength: 40,
+              style: const TextStyle(color: JiajiaColors.text1, fontSize: 13),
+              decoration: const InputDecoration(
+                labelText: '名称',
+                labelStyle: TextStyle(color: JiajiaColors.text3),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${widget.faceCount} 个面 · 尺寸取自 OBJ 包围盒（可改）',
+              style: const TextStyle(color: JiajiaColors.text3, fontSize: 10),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final cat in FurnitureTabs.cats)
+                  ChoiceChip(
+                    label: Text(cat, style: const TextStyle(fontSize: 11)),
+                    selected: _cat == cat,
+                    onSelected: (_) => setState(() => _cat = cat),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                _mmField('W mm', _wC),
+                _mmField('D mm', _dC),
+                _mmField('H mm', _hC),
+              ],
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消', style: TextStyle(color: JiajiaColors.text2)),
+        ),
+        FilledButton(
+          onPressed: _ok,
+          child: const Text(
+            '入库',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+        ),
+      ],
     );
   }
 }
