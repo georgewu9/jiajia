@@ -109,12 +109,12 @@ void main() {
   });
 
   group('model: 模型目录（原 app 图标）', () {
-    test('目录齐 + 37 件（v0.1.26：梁柱菜单精简为 7 件）', () {
+    test('目录齐 + 44 件（v0.1.34：+7 个 CC0 门窗实模）', () {
       expect(ModelItems.categories,
           ['门', '窗', '柱', '梁', '楼梯', '台面/五金', '特殊墙窗']);
-      expect(ModelItems.all.length, 37);
-      expect(ModelItems.ofCategory('门').length, 6);
-      expect(ModelItems.ofCategory('窗').length, 6);
+      expect(ModelItems.all.length, 44);
+      expect(ModelItems.ofCategory('门').length, 11);
+      expect(ModelItems.ofCategory('窗').length, 8);
       expect(ModelItems.ofCategory('柱').length, 2);
       expect(ModelItems.ofCategory('梁').length, 5); // 梁/风管/包管道/裸管/地台
       expect(ModelItems.ofCategory('楼梯').length, 4);
@@ -152,7 +152,7 @@ void main() {
       await tester.tap(find.text('门'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text('门 · 素材（6 件）'), findsOneWidget);
+      expect(find.text('门 · 素材（11 件）'), findsOneWidget);
       expect(find.text('门洞'), findsOneWidget);
       // 返回一级 → 楼梯（含平台）
       await tester.tap(find.text('← 模块'));

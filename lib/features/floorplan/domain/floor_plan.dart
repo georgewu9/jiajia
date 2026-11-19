@@ -111,6 +111,9 @@ class Opening {
   bool outSwing; // 外开门（false=内开，默认；仅单开/双开门有意义）
   // v0.1.24：铰链侧（true=左开，false=右开；仅单开/双开门有意义，与内/外开正交）
   bool hingeLeft;
+  // v0.1.34：洞口挂的 3D 门窗素材 id（models_ext.js JJ_EXT_MODELS / 内置 JJ_MODELS）；
+  // null = 通用门扇/窗玻璃渲染（旧数据宽容）。
+  final String? modelId;
 
   Opening({
     required this.id,
@@ -122,6 +125,7 @@ class Opening {
     this.doorType = DoorType.single,
     this.outSwing = false,
     this.hingeLeft = true,
+    this.modelId,
     double? height,
   }) : height =
            height ??
@@ -150,6 +154,8 @@ class Opening {
     'ht': height,
     'out': outSwing,
     'hl': hingeLeft,
+    // v0.1.34：仅挂了 CC0 门窗素材的洞口写 m（旧数据无此键 → null）
+    if (modelId != null) 'm': modelId,
   };
 }
 
@@ -480,6 +486,8 @@ class FloorPlan {
         outSwing: o['out'] == true,
         // 旧 JSON 无 hl 字段 → 左开（宽容解析）
         hingeLeft: o['hl'] != false,
+        // 旧 JSON 无 m 字段 → null（通用门窗渲染）
+        modelId: o['m'] as String?,
       );
       p._seq = p.maxSeq(p._seq, o['id'] as String, 'o');
     }
@@ -851,6 +859,7 @@ extension RoomOps on FloorPlan {
                 height: o.height,
                 outSwing: o.outSwing,
                 hingeLeft: o.hingeLeft,
+                modelId: o.modelId,
               )
             : Opening(
                 id: o.id,
@@ -863,6 +872,7 @@ extension RoomOps on FloorPlan {
                 height: o.height,
                 outSwing: o.outSwing,
                 hingeLeft: o.hingeLeft,
+                modelId: o.modelId,
               );
         openings[o.id] = o2;
       }

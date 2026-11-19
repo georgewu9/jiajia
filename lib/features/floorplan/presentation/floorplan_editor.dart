@@ -986,6 +986,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
           width: wM,
           sill: m.sillMm / 1000,
           height: m.heightMm / 1000,
+          modelId: m.modelId,
         );
       });
       _toast('${m.noLeaf ? '开洞' : '已开'} ${m.specText}');
@@ -2828,6 +2829,7 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
             _outSwing :
             false,
         hingeLeft: _kind == OpeningKind.window ? true : _hingeLeft,
+        modelId: o.modelId, // v0.1.34：改开洞参数不丢 CC0 门窗素材
       );
     });
     _msg('开洞参数已更新');

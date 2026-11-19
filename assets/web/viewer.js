@@ -106,6 +106,7 @@
   var keys = {};
   var lastPlan = null;
   var doorsDbg = [], windowsDbg = []; // 调试：门窗实体引用
+  var extOpeningsDbg = []; // v0.1.34：洞口外部 CC0 门窗实模（Group，debugExtOpenings 用）
 
   function post(msg) {
     if (window.dart && window.dart.postMessage) {
@@ -237,7 +238,14 @@
           }
           // v0.1.18 门扇：单开整宽、双开两端各半宽；铰链在开洞端部，
           // 90° 张开——内开朝法向内侧（side=1）、外开朝外侧（side=-1）
-          if (kind.dt === 'single' || kind.dt === 'double') {
+          // v0.1.34：洞口挂了外部 CC0 门窗模型（Opening.m）→ 用 OBJ 实模替换通用门扇。
+          // 未挂模型 / 模型表缺失（旧包）→ 保持原通用门扇逻辑不变。
+          var extM = kind.m ? extSource(kind.m) : null;
+          var extG = extM ? extGeometry(kind.m) : null;
+          if (extG) {
+            root.add(openingModel(kind.m, extM, extG, segLen,
+                kind.ht || 2.05, kind.sill || 0, mx, my, ang));
+          } else if (kind.dt === 'single' || kind.dt === 'double') {
             // 门框（深灰 #333）：门洞两侧 + 门头
             var dFrame = frameGroup(segLen, 0, Math.min(2.1, hh), th, COL.frame);
             dFrame.position.copy(w2v(mx, my));
@@ -284,22 +292,30 @@
           below.rotation.y = -ang;
           root.add(below);
           var glassH = hh - sill;
-          // 窗框（深灰 #333）：窗洞四周
-          var wFrame = frameGroup(segLen, sill, glassH, th, COL.frame);
-          wFrame.position.copy(w2v(mx, my));
-          wFrame.rotation.y = -ang;
-          root.add(wFrame);
-          var glass = new THREE.Mesh(
-              new THREE.BoxGeometry(segLen, glassH, 0.04),
-              new THREE.MeshStandardMaterial({
-                color: COL.glass, transparent: true, opacity: 0.45,
-                side: THREE.DoubleSide
-              }));
-          glass.position.copy(w2v(mx, my));
-          glass.position.y = sill + glassH / 2;
-          glass.rotation.y = -ang;
-          root.add(glass);
-          windowsDbg.push(glass);
+          // v0.1.34：洞口挂外部 CC0 窗模型 → 用 OBJ 实模替换通用窗框+玻璃（窗台下实墙保留）
+          var wExt = kind.m ? extSource(kind.m) : null;
+          var wG = wExt ? extGeometry(kind.m) : null;
+          if (wG) {
+            root.add(openingModel(kind.m, wExt, wG, segLen,
+                kind.ht || glassH, sill, mx, my, ang));
+          } else {
+            // 窗框（深灰 #333）：窗洞四周
+            var wFrame = frameGroup(segLen, sill, glassH, th, COL.frame);
+            wFrame.position.copy(w2v(mx, my));
+            wFrame.rotation.y = -ang;
+            root.add(wFrame);
+            var glass = new THREE.Mesh(
+                new THREE.BoxGeometry(segLen, glassH, 0.04),
+                new THREE.MeshStandardMaterial({
+                  color: COL.glass, transparent: true, opacity: 0.45,
+                  side: THREE.DoubleSide
+                }));
+            glass.position.copy(w2v(mx, my));
+            glass.position.y = sill + glassH / 2;
+            glass.rotation.y = -ang;
+            root.add(glass);
+            windowsDbg.push(glass);
+          }
         }
       });
     });
@@ -386,6 +402,78 @@
     outer.add(inner);
     modelCache[mid] = outer;
     return outer;
+  }
+
+  // ---------- 扩展素材（v0.1.34：用户提供的 7 个 CC0 门窗 OBJ，models_ext.js）----------
+  // 与内置 JJ_MODELS 的区别：外部 OBJ 的源单位/缩放不可靠（如 frenchDoors bbox 只有
+  // 0.11×0.01×0.10m，规格要求 1.14×0.14×1.00m）→ 按规格 w/d/h 三轴 fit（同 libGeometry），
+  // 而不是内置素材那样只 fit 高度。window.JJ_EXT_MODELS 可能不存在（旧包升级 / 未打包）。
+  var extCache = {};
+  function extSource(mid) {
+    // typeof 判空：旧包升级（未打包 models_ext.js）时不能抛 ReferenceError
+    if (!mid || typeof window.JJ_EXT_MODELS === 'undefined' ||
+        !window.JJ_EXT_MODELS) return null;
+    return window.JJ_EXT_MODELS[mid] || null;
+  }
+
+  function extGeometry(mid) {
+    if (extCache[mid]) return extCache[mid];
+    var model = extSource(mid);
+    if (!model || !model.o) return null;
+    var parsed = parseOBJ(model.o);
+    var meshes = [];
+    for (var i = 0; i < parsed.mats.length; i++) {
+      var matName = parsed.mats[i];
+      var arr = parsed.groups[matName];
+      if (!arr || arr.length < 3) continue;
+      var geo = new THREE.BufferGeometry();
+      var pos = new Float32Array(arr.length * 3);
+      for (var a = 0; a < arr.length; a++) {
+        var v = parsed.verts[arr[a] - 1];
+        if (!v) continue;
+        pos[a * 3] = v[0]; pos[a * 3 + 1] = v[1]; pos[a * 3 + 2] = v[2];
+      }
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.computeVertexNormals();
+      meshes.push(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+        color: parseHexColor(model.c, 0x8f8f8f), side: THREE.DoubleSide })));
+    }
+    if (!meshes.length) return null;
+    var inner = new THREE.Group();
+    meshes.forEach(function (m) { inner.add(m); });
+    var bb = new THREE.Box3().setFromObject(inner);
+    var size = bb.getSize(new THREE.Vector3());
+    var tw = model.w > 0 ? model.w : 1.0;
+    var td = model.d > 0 ? model.d : 0.2;
+    var th = model.h > 0 ? model.h : 2.0;
+    inner.scale.set(size.x > 1e-6 ? tw / size.x : 1,
+                    size.y > 1e-6 ? th / size.y : 1,
+                    size.z > 1e-6 ? td / size.z : 1);
+    inner.updateMatrixWorld(true);
+    bb = new THREE.Box3().setFromObject(inner);
+    var c = bb.getCenter(new THREE.Vector3());
+    inner.position.x = -c.x;
+    inner.position.z = -c.z;
+    inner.position.y = -bb.min.y;
+    var outer = new THREE.Group();
+    outer.add(inner);
+    extCache[mid] = outer;
+    return outer;
+  }
+
+  // 洞口实模：把已按规格 w/d/h 归一化的 OBJ 组 fit 进洞口（宽/高），沿墙朝向摆放。
+  // 只被挂在 Opening.m 上的门窗使用；通用门扇/窗玻璃路径不受影响。
+  function openingModel(mid, model, proto, width, height, sill, cx, cy, ang) {
+    var inst = proto.clone(true);
+    var mw = model.w > 0 ? model.w : width;
+    var mh = model.h > 0 ? model.h : height;
+    inst.scale.set(width / mw, height / mh, 1);
+    inst.position.copy(w2v(cx, cy));
+    inst.position.y = sill || 0;
+    inst.rotation.y = -ang;
+    inst.userData = { opening: mid, model: mid, extModel: true };
+    extOpeningsDbg.push({ id: mid, width: width, height: height, obj: inst });
+    return inst;
   }
 
   // ---------- 模型库（外部 OBJ）：复用同一条 parseOBJ，三轴 fit 到目标 w/d/h ----------
@@ -673,13 +761,44 @@
       var sw = (typeof i.sw === 'number') ? i.sw : null;
       var sd = (typeof i.sd === 'number') ? i.sd : null;
       var sh = (typeof i.sh === 'number') ? i.sh : null;
-      var modelMid = i.model && window.JJ_MODELS && window.JJ_MODELS[i.model]
-          ? i.model : null;
+      // v0.1.34：素材模型查表扩展——内置 JJ_MODELS 优先，其次用户 CC0 门窗 JJ_EXT_MODELS。
+      // JJ_EXT_MODELS 可能未定义（旧包升级 / 包内漏打）→ 占位盒 + 名字，绝不崩。
+      var modelMid = null, mdef = null, mExt = false;
+      if (i.model) {
+        if (window.JJ_MODELS && window.JJ_MODELS[i.model]) {
+          modelMid = i.model;
+          mdef = window.JJ_MODELS[i.model];
+        } else if (extSource(i.model)) {
+          modelMid = i.model;
+          mdef = extSource(i.model);
+          mExt = true;
+        } else {
+          // 查到不到的 model id（旧包/models_ext.js 缺席）：占位盒 + 名字
+          var mxw = sw != null ? sw : 0.9;
+          var mxd = sd != null ? sd : 0.2;
+          var mxh = sh != null ? sh : 2.1;
+          var gmiss = new THREE.Group();
+          var mbox = new THREE.Mesh(new THREE.BoxGeometry(mxw, mxh, mxd),
+              new THREE.MeshStandardMaterial({
+                color: 0x8f8f8f, transparent: true, opacity: 0.55 }));
+          mbox.position.y = mxh / 2;
+          gmiss.add(mbox);
+          var mlbl = makeLabel('模型缺失');
+          mlbl.position.set(0, mxh + 0.22, 0);
+          gmiss.add(mlbl);
+          gmiss.position.set(i.x, i.el || 0, i.y);
+          gmiss.rotation.y = -((i.rot || 0) * Math.PI / 180);
+          gmiss.userData = { id: i.id, kind: i.kind, model: i.model,
+                             placeholder: true, labelItem: true };
+          root.add(gmiss);
+          return;
+        }
+      }
       if (modelMid) {
-        var proto = modelGeometry(modelMid);
+        var proto = mExt ? extGeometry(modelMid) : modelGeometry(modelMid);
         if (proto) {
           var mesh = proto.clone(true);
-          var md = window.JJ_MODELS[modelMid];
+          var md = mdef;
           if (sw != null || sd != null || sh != null) {
             var sx = sw != null && md.w ? sw / md.w : 1;
             var sz = sd != null && md.d ? sd / md.d : 1;
@@ -870,7 +989,7 @@
 
   function applyPlan(jsonStr) {
     clearRoot();
-    doorsDbg = []; windowsDbg = [];
+    doorsDbg = []; windowsDbg = []; extOpeningsDbg = [];
     var plan = JSON.parse(jsonStr);
     lastPlan = plan;
     var b = boundsOf(plan);
@@ -937,6 +1056,39 @@
           size: [+sz.x.toFixed(3), +sz.y.toFixed(3), +sz.z.toFixed(3)] });
       });
       return out;
+    },
+    // v0.1.34：洞口外部 CC0 门窗实模探针（尺寸/网格数，自动化验证用）
+    debugExtOpenings: function () {
+      return extOpeningsDbg.map(function (e) {
+        var meshes = 0, verts = 0;
+        e.obj.traverse(function (c) {
+          if (c.isMesh) {
+            meshes++;
+            if (c.geometry && c.geometry.attributes &&
+                c.geometry.attributes.position) {
+              verts += c.geometry.attributes.position.count;
+            }
+          }
+        });
+        var box = new THREE.Box3().setFromObject(e.obj);
+        var sz = box.getSize(new THREE.Vector3());
+        return { id: e.id, width: e.width, height: e.height,
+                 meshes: meshes, verts: verts,
+                 size: [+sz.x.toFixed(3), +sz.y.toFixed(3), +sz.z.toFixed(3)] };
+      });
+    },
+    // v0.1.34：OBJ 文本解析统计（复用 viewer 内 parseOBJ；验证面数/字符数不被截断）
+    modelStats: function (mid) {
+      var m = (window.JJ_MODELS && window.JJ_MODELS[mid]) ||
+              (window.JJ_EXT_MODELS && window.JJ_EXT_MODELS[mid]);
+      if (!m || !m.o) return null;
+      var p = parseOBJ(m.o);
+      var tris = 0;
+      Object.keys(p.groups).forEach(function (k) {
+        tris += Math.floor(p.groups[k].length / 3);
+      });
+      return { id: mid, chars: m.o.length, verts: p.verts.length,
+               tris: tris, mats: p.mats.length };
     },
     setMode: function (m) {
       mode = m;

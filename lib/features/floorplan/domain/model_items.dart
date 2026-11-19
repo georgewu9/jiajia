@@ -19,6 +19,9 @@ class ModelSpec {
   final int sillMm;
   final int heightMm;
   final bool noLeaf; // 垭口/门洞/窗口：无扇
+  // v0.1.34：关联 3D 素材 id（内置 JJ_MODELS 或 models_ext.js 的 JJ_EXT_MODELS）；
+  // 仅门窗（place=wall）用，null = 走原 app 通用门扇/窗玻璃渲染。
+  final String? modelId;
 
   // ---- floor（柱/楼梯/台面五金）----
   final FurnitureKind? floorKind;
@@ -35,6 +38,7 @@ class ModelSpec {
     this.sillMm = 0,
     this.heightMm = 2000,
     this.noLeaf = false,
+    this.modelId,
     this.floorKind,
   });
 
@@ -134,6 +138,62 @@ class ModelItems {
       defaultWmm: 1200,
       heightMm: 2000,
     ),
+    // ---------- 门 · CC0 实模（v0.1.34：用户提供的 OBJ，见 assets/web/models_ext.js）----------
+    ModelSpec(
+      id: 'm_door1',
+      category: '门',
+      label: '标准单门',
+      place: ModelPlace.wall,
+      kind: OpeningKind.door,
+      doorType: DoorType.single,
+      defaultWmm: 910,
+      heightMm: 2140,
+      modelId: 'm_door1',
+    ),
+    ModelSpec(
+      id: 'm_frontDoorDark',
+      category: '门',
+      label: '入户大门',
+      place: ModelPlace.wall,
+      kind: OpeningKind.door,
+      doorType: DoorType.single,
+      defaultWmm: 670,
+      heightMm: 1210,
+      modelId: 'm_frontDoorDark',
+    ),
+    ModelSpec(
+      id: 'm_frenchDoors',
+      category: '门',
+      label: '法式门',
+      place: ModelPlace.wall,
+      kind: OpeningKind.door,
+      doorType: DoorType.double,
+      defaultWmm: 1140,
+      heightMm: 1000,
+      modelId: 'm_frenchDoors',
+    ),
+    ModelSpec(
+      id: 'm_thick_double_2x4',
+      category: '门',
+      label: '厚框双移门',
+      place: ModelPlace.wall,
+      kind: OpeningKind.door,
+      doorType: DoorType.sliding,
+      defaultWmm: 1600,
+      heightMm: 2100,
+      modelId: 'm_thick_double_2x4',
+    ),
+    ModelSpec(
+      id: 'm_doorGlassPanels',
+      category: '门',
+      label: '玻璃门',
+      place: ModelPlace.wall,
+      kind: OpeningKind.door,
+      doorType: DoorType.single,
+      defaultWmm: 770,
+      heightMm: 2060,
+      modelId: 'm_doorGlassPanels',
+    ),
     // ---------- 窗 ----------
     ModelSpec(
       id: 'luodichuang',
@@ -201,6 +261,29 @@ class ModelItems {
       sillMm: 900,
       heightMm: 1500,
       noLeaf: true,
+    ),
+    // ---------- 窗 · CC0 实模（v0.1.34）----------
+    ModelSpec(
+      id: 'm_window_deep',
+      category: '窗',
+      label: '深窗框',
+      place: ModelPlace.wall,
+      kind: OpeningKind.window,
+      defaultWmm: 1050,
+      sillMm: 900,
+      heightMm: 1500,
+      modelId: 'm_window_deep',
+    ),
+    ModelSpec(
+      id: 'm_window_double_sill',
+      category: '窗',
+      label: '双框窗台',
+      place: ModelPlace.wall,
+      kind: OpeningKind.window,
+      defaultWmm: 1230,
+      sillMm: 900,
+      heightMm: 1100,
+      modelId: 'm_window_double_sill',
     ),
     // ---------- 柱 ----------
     ModelSpec(
