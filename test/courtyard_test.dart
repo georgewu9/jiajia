@@ -9,6 +9,7 @@ import 'package:jiajia/features/floorplan/presentation/floorplan_editor.dart';
 import 'package:jiajia/features/floorplan/state/editor_doc.dart';
 
 /// v0.1.36：庭院 12 件 CC0/CC-BY 素材（models_ext.js）挂进「模块 → 庭院」。
+/// v0.1.37：删「坡道栏杆」（m_courtyard_ramp）→ 11 件；awning 增离地高度 1500mm。
 void main() {
   // id → (中文名, w×d×h mm)，与 models_ext.js 的 w/d/h（米）一一对应
   const specs = <String, (String, int, int, int)>{
@@ -21,7 +22,6 @@ void main() {
     'm_courtyard_greenhouse': ('温室', 3100, 3100, 2900),
     'm_courtyard_pine': ('松树', 3400, 3760, 6130),
     'm_courtyard_railing': ('栏杆', 4750, 330, 1810),
-    'm_courtyard_ramp': ('坡道栏杆', 20000, 8530, 1170),
     'm_courtyard_sassafras': ('马桑树', 1770, 1520, 2070),
     'm_courtyard_tree': ('庭院树', 7500, 8000, 10000),
   };
@@ -47,9 +47,9 @@ void main() {
   }
 
   group('庭院目录', () {
-    test('12 件存在、id 集合精确、全部地面摆放 + 显式规格（mm）', () {
+    test('11 件存在、id 集合精确、全部地面摆放 + 显式规格（mm）', () {
       final items = ModelItems.ofCategory('庭院');
-      expect(items.length, 12);
+      expect(items.length, 11);
       expect(items.map((m) => m.id).toSet(), specs.keys.toSet());
       for (final m in items) {
         final s = specs[m.id]!;
@@ -62,9 +62,23 @@ void main() {
         expect(m.specHmm, s.$4, reason: '${m.id} 高');
         expect(m.specText, '${s.$2}×${s.$3}×${s.$4}');
       }
+      // v0.1.37：坡道栏杆已删（素材/菜单/JS 三处同步移除）
+      expect(ModelItems.byId('m_courtyard_ramp'), isNull);
+      expect(items.any((m) => m.id == 'm_courtyard_ramp'), false);
       // byId 可反查（物品显示名用）
       expect(ModelItems.byId('m_courtyard_tree')?.label, '庭院树');
       expect(ModelItems.byId('m_courtyard_nope'), isNull);
+    });
+
+    test('离地高度：awning = 1500mm，其余庭院件 null（落地）', () {
+      final a = ModelItems.byId('m_courtyard_awning')!;
+      expect(a.offFloorMm, 1500);
+      for (final m in ModelItems.ofCategory('庭院')) {
+        if (m.id == 'm_courtyard_awning') continue;
+        expect(m.offFloorMm, isNull, reason: '${m.id} 应落地');
+      }
+      // specText 不带离地高度（面板/规格文案仍 宽×深×高）
+      expect(a.specText, '3100×1690×620');
     });
 
     test('credit：仅 fountain 非空（CC-BY 3.0 署名完整），其余为 null', () {
@@ -121,7 +135,7 @@ void main() {
   });
 
   group('庭院 UI', () {
-    testWidgets('模块一级有「庭院」入口 → 二级 12 件网格 + CC-BY 角标/署名', (tester) async {
+    testWidgets('模块一级有「庭院」入口 → 二级 11 件网格 + CC-BY 角标/署名', (tester) async {
       await pumpEditorTall(tester);
       await tester.tap(find.text('模块'));
       await tester.pump();
@@ -131,7 +145,7 @@ void main() {
       await tester.tap(find.text('庭院'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text('庭院 · 素材（12 件）'), findsOneWidget);
+      expect(find.text('庭院 · 素材（11 件）'), findsOneWidget);
       // 网格首末件都在（GridView shrinkWrap 全量构建）
       expect(find.text('遮阳棚支架'), findsOneWidget);
       expect(find.text('庭院树'), findsOneWidget);
@@ -176,6 +190,7 @@ void main() {
       expect(it.sizeW, closeTo(3.10, 0.001));
       expect(it.sizeD, closeTo(1.69, 0.001));
       expect(it.sizeH, closeTo(0.62, 0.001));
+      expect(it.offFloorMm, 1500); // v0.1.37：吊装件默认离地 1.5m
       // 显示名走 ModelSpec（不是「素材」兜底）
       expect(find.textContaining('已放 遮阳棚支架'), findsOneWidget);
       // 保存/加载后 modelId + 尺寸不丢

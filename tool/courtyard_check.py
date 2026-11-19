@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""v0.1.36 庭院 12 件素材回归探针（无头 Chromium + 本地 http.server，套路同 tool/open_slice_check.py）。
+"""v0.1.36 庭院实模回归探针（v0.1.37 起 11 件：坡道栏杆已删）（无头 Chromium + 本地 http.server，套路同 tool/open_slice_check.py）。
 
 验证：
-  1) 12 件 kind=asset + model=m_courtyard_* 地面摆放 → 每件 mesh 顶点 >10（实模不是占位盒）
+  1) 11 件 kind=asset + model=m_courtyard_* 地面摆放 → 每件 mesh 顶点 >10（实模不是占位盒）
   2) 世界尺寸 ≈ ModelSpec 规格（米），误差 <0.05m（大面数 greenhouse 也算）
   3) 三角面数（= 非索引 geometry 的顶点数 / 3）与期望表逐个对比
   4) window.JJ_EXT_MODELS 缺席（旧包升级）→ 全部回占位盒，页面不抛异常
@@ -34,7 +34,6 @@ SPECS = {
     "m_courtyard_greenhouse": ("温室", 3.10, 3.10, 2.90, 5098),
     "m_courtyard_pine": ("松树", 3.40, 3.76, 6.13, 4500),
     "m_courtyard_railing": ("栏杆", 4.75, 0.33, 1.81, 504),
-    "m_courtyard_ramp": ("坡道栏杆", 20.00, 8.53, 1.17, 4500),
     "m_courtyard_sassafras": ("马桑树", 1.77, 1.52, 2.07, 5000),
     "m_courtyard_tree": ("庭院树", 7.50, 8.00, 10.00, 4499),
 }

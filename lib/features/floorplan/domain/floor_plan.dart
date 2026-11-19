@@ -378,6 +378,9 @@ class FurnitureItem {
   double elevation;
   // v0.1.31：模型库 id（kind=lib 时指向 LibModelsStore 的一条；JSON 键 lib）
   String? lib;
+  // v0.1.37：实模（kind=model 素材）离地高度（mm；JSON 键 off）。
+  // 放置时取 ModelSpec.offFloorMm（null → 0）；遮阳棚等吊装件用，2D 占地不受影响。
+  int? offFloorMm;
 
   FurnitureItem({
     required this.id,
@@ -390,6 +393,7 @@ class FurnitureItem {
     this.sizeH,
     this.elevation = 0,
     this.lib,
+    this.offFloorMm,
   });
 
   /// 目录/素材默认占地（宽×深×高，米）。
@@ -421,6 +425,7 @@ class FurnitureItem {
     if (sizeD != null) 'sd': sizeD,
     if (sizeH != null) 'sh': sizeH,
     if (elevation != 0) 'el': elevation,
+    if (offFloorMm != null) 'off': offFloorMm,
   };
 }
 
@@ -515,6 +520,8 @@ class FloorPlan {
         sizeH: (i['sh'] as num?)?.toDouble(),
         // 旧 JSON 无 el 字段 → 离地 0
         elevation: (i['el'] as num?)?.toDouble() ?? 0,
+        // 旧 JSON 无 off → null（落地 0）
+        offFloorMm: (i['off'] as num?)?.toInt(),
         // 旧 JSON 无 lib 字段 → null（宽容解析）
         lib: i['lib'] as String?,
       );

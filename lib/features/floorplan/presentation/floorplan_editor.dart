@@ -649,7 +649,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                 ),
                 // v0.1.31：第 7 入口「家具」→ 单 sheet（5 分类 chips + 素材网格）
                 _moduleEntry('家具', Icons.bed, _openFurnitureSheet),
-                // v0.1.36：第 8 入口「庭院」→ 12 件 CC0/CC-BY 庭院 OBJ（地面摆放）
+                // v0.1.36：第 8 入口「庭院」→ 11 件 CC0/CC-BY 庭院 OBJ（地面摆放；v0.1.37 删坡道栏杆）
                 _moduleEntry(
                   '庭院',
                   Icons.park,
@@ -1043,6 +1043,8 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
           sizeW: m.specWmm == null ? null : m.specWmm! / 1000,
           sizeD: m.specDmm == null ? null : m.specDmm! / 1000,
           sizeH: m.specHmm == null ? null : m.specHmm! / 1000,
+          // v0.1.37：离地高度（mm）随放置写进物品；spec 为 null → 0（落地）
+          offFloorMm: m.offFloorMm ?? 0,
         );
         _sel = _Sel(fid, 'item');
       });
@@ -3103,6 +3105,20 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
       k == FurnitureKind.stairL ||
       k == FurnitureKind.stairR;
 
+  /// 实模物品（挂 modelId 的素材/柜类）：显示「离地高度」，写 offFloorMm。
+  static bool _isModelItem(FurnitureItem it) => it.modelId != null;
+
+  /// 实模离地高度范围：0..3000mm（步进 50）。
+  static const int _liftMaxMm = 3000;
+  static const int _liftStepMm = 50;
+
+  /// ±50mm 步进（夹在 0..3000）；2D 占地不变，仅 3D 抬高。
+  void _bumpLift(int delta) {
+    final cur = _parseMm0(_elC) ?? 0;
+    final v = (cur + delta).clamp(0, _liftMaxMm);
+    setState(() => _elC.text = '$v');
+  }
+
   @override
   void initState() {
     super.initState();
@@ -3111,7 +3127,11 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
     _wC = TextEditingController(text: '${toMm(item?.sizeW ?? bw)}');
     _dC = TextEditingController(text: '${toMm(item?.sizeD ?? bd)}');
     _hC = TextEditingController(text: '${toMm(item?.sizeH ?? bh)}');
-    _elC = TextEditingController(text: '${toMm(item?.elevation ?? 0)}');
+    // 楼梯用 elevation；实模（modelId != null）用 offFloorMm（mm，吊装件用）
+    final liftMm = item == null
+        ? 0
+        : (item.modelId != null ? (item.offFloorMm ?? 0) : toMm(item.elevation));
+    _elC = TextEditingController(text: '$liftMm');
     _rot = item?.rotationDeg ?? 0;
   }
 
@@ -3152,9 +3172,14 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
     }
     final item = ref.read(editorDocProvider).plan.items[widget.itemId];
     final isStair = item != null && _isStairKind(item.kind);
-    final elMm = isStair ? _parseMm0(_elC) : null;
-    if (isStair && elMm == null) {
+    final isModel = item != null && _isModelItem(item);
+    final elMm = (isStair || isModel) ? _parseMm0(_elC) : null;
+    if ((isStair || isModel) && elMm == null) {
       _msg('离地高度需 ≥0 的整数（单位 mm）');
+      return;
+    }
+    if (isModel && elMm! > _liftMaxMm) {
+      _msg('离地高度需在 0..$_liftMaxMm mm 之间');
       return;
     }
     ref.read(editorDocProvider.notifier).mutate((p) {
@@ -3164,6 +3189,8 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
       it.sizeD = fromMm(dMm);
       it.sizeH = fromMm(hMm);
       if (isStair && elMm != null) it.elevation = fromMm(elMm);
+      // v0.1.37：实模离地高度（mm 整数存 item.offFloorMm，viewer 按 /1000 抬高）
+      if (isModel && elMm != null) it.offFloorMm = elMm;
       it.rotationDeg = _rot;
     });
     _msg('尺寸/旋转已更新');
@@ -3209,6 +3236,7 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
     }
     final label = _itemLabelOf(item);
     final isStair = _isStairKind(item.kind);
+    final isModel = _isModelItem(item);
     // 坑⑤：sheet 内容必须 DraggableScrollableSheet（与 _WallDialog 同款）
     return DraggableScrollableSheet(
       expand: false,
@@ -3250,6 +3278,33 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
                 const SizedBox(height: 4),
                 const Text(
                   '楼梯整体底部离地（mm），二楼/错层场景用；默认 0',
+                  style: TextStyle(color: JiajiaColors.text3, fontSize: 11),
+                ),
+              ],
+              // v0.1.37：实模离地高度（遮阳棚等吊装件；2D 占地不变，只影响 3D）
+              if (isModel) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    IconButton(
+                      key: const ValueKey('lift_minus'),
+                      icon: const Icon(Icons.remove_circle_outline,
+                          color: JiajiaColors.accent, size: 20),
+                      onPressed: () => _bumpLift(-_liftStepMm),
+                    ),
+                    Expanded(child: _mmField('离地高度', _elC)),
+                    IconButton(
+                      key: const ValueKey('lift_plus'),
+                      icon: const Icon(Icons.add_circle_outline,
+                          color: JiajiaColors.accent, size: 20),
+                      onPressed: () => _bumpLift(_liftStepMm),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  '实模底部离地（mm，0..3000，±50 步进）：遮阳棚等吊装件用；'
+                  '默认取素材规格（遮阳棚 1500），2D 占地不变',
                   style: TextStyle(color: JiajiaColors.text3, fontSize: 11),
                 ),
               ],
@@ -4438,7 +4493,11 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
   @override
   Widget build(BuildContext context) {
     final builtins = FurnitureTabs.ofCat(_cat);
-    final libs = _libs.where((m) => m.cat == _cat).toList(growable: false);
+    // v0.1.37：「厨房」改名「厨卫」。旧库条目（v0.1.36 及以前导入）分类仍写着「厨房」，
+    // 若严格相等匹配会从抽屉里消失 → 厨卫 tab 一并收进来，避免老用户素材“丢件”。
+    final libs = _libs
+        .where((m) => m.cat == _cat || (_cat == '厨卫' && m.cat == '厨房'))
+        .toList(growable: false);
     final total = builtins.length + libs.length;
     return DraggableScrollableSheet(
       expand: false,

@@ -2,18 +2,20 @@
 //
 // 引用统一写成 `<source>:<id>`：
 //   · 'kind:sofa'            → FurnitureCatalog 里的 19 个 FurnitureKind 之一
-//   · 'model:shuzhuangtai'   → ModelItems（原 app 模型模块）里 floor 摆放的 ModelSpec
-// 后者目前用于梳妆台 / 暖气片：它们在「台面/五金」分类里，已有图标与尺寸，
-// 走现有的 model 放置路径（_startPlacingModel），不另造一种家具 kind。
+//   · 'model:m_furn_desk'    → ModelItems（category='家具'）里 floor 摆放的 ModelSpec
+// 后者全部走现有的 model 放置路径（_startPlacingModel），不另造一种家具 kind。
 //
-// 同一件素材允许跨分类复用（书桌出现在 卧室 + 书房，电视柜出现在 卧室 + 客餐厅，
-// 洗衣机出现在 厨房 + 其他）。
+// v0.1.37 菜单重组（用户拍板）：
+//   · 「厨房」改名「厨卫」；厨卫只留 冰箱/洗衣机 两个 kind tile，其余全换实模；
+//   · 卧室/客餐厅 删掉电视柜、置物架、鞋柜、茶几、梳妆台、书桌等旧 kind tile（kind 本体保留）；
+//   · 书房/其他 原有的 kind tile 全清空，只剩新增的 42 件实模引用。
+// 同一件素材允许跨分类复用（办公椅出现在 书房 + 客餐厅，双门吊柜出现在 卧室 + 厨卫）。
 import 'floor_plan.dart';
 import 'model_items.dart';
 
 /// 一个已解析的家具菜单项。
 class FurnitureTabItem {
-  /// 原始引用串（'kind:sofa' / 'model:shuzhuangtai'），保留便于测试与日志。
+  /// 原始引用串（'kind:sofa' / 'model:m_furn_desk'），保留便于测试与日志。
   final String ref;
   final String label;
 
@@ -75,38 +77,71 @@ class FurnitureTabs {
   const FurnitureTabs._();
 
   /// 二级分类（顺序即 chips 顺序，默认选第一个）。
-  static const List<String> cats = ['卧室', '客餐厅', '书房', '厨房', '其他'];
+  static const List<String> cats = ['卧室', '客餐厅', '书房', '厨卫', '其他'];
 
-  /// 分类 → 引用串列表。数量：6 / 6 / 4 / 8 / 3。
+  /// 分类 → 引用串列表。数量：6 / 12 / 4 / 19 / 10（共 51 条，44 条实模引用 + 7 条 kind）。
   static const Map<String, List<String>> items = {
     '卧室': [
       'kind:bed',
       'kind:wardrobe',
-      'kind:desk',
-      'kind:shelf',
-      'kind:tv',
-      'model:shuzhuangtai', // 梳妆台（台面/五金）
+      'model:m_furn_upper_cab_2d',
+      'model:m_furn_dresser',
+      'model:m_furn_bed',
+      'model:m_furn_pantry',
     ],
     '客餐厅': [
       'kind:sofa',
       'kind:table',
-      'kind:coffee',
-      'kind:shoe',
       'kind:chair',
-      'kind:tv',
+      'model:m_furn_office_chair',
+      'model:m_furn_sofa_cherry',
+      'model:m_furn_sofa_cushion',
+      'model:m_furn_coffee_table',
+      'model:m_furn_sofa_large',
+      'model:m_furn_chest_tall',
+      'model:m_furn_table_round',
+      'model:m_furn_armchair',
+      'model:m_furn_table_low',
     ],
-    '书房': ['kind:desk', 'kind:shelf', 'kind:chair', 'kind:sofa'],
-    '厨房': [
+    '书房': [
+      'model:m_furn_armoire',
+      'model:m_furn_office_chair',
+      'model:m_furn_desk',
+      'model:m_furn_stool',
+    ],
+    '厨卫': [
       'kind:fridge',
       'kind:washer',
-      'kind:stove',
-      'kind:hood',
-      'kind:sink',
-      'kind:microwave',
-      'kind:oven',
-      'model:nuanqipian', // 暖气片（台面/五金）
+      'model:m_furn_lower_cab_1d',
+      'model:m_furn_upper_cab_1d',
+      'model:m_furn_lower_cab_2d',
+      'model:m_furn_upper_cab_2d',
+      'model:m_furn_cab_3draw',
+      'model:m_furn_shower_tray',
+      'model:m_furn_vanity',
+      'model:m_furn_jacuzzi',
+      'model:m_furn_corner_cab',
+      'model:m_furn_shower_room',
+      'model:m_furn_hob',
+      'model:m_furn_island',
+      'model:m_furn_marble_sink',
+      'model:m_furn_mirror',
+      'model:m_furn_shower_cabin',
+      'model:m_furn_toilet',
+      'model:m_furn_basin',
     ],
-    '其他': ['kind:plant', 'kind:stool', 'kind:washer'],
+    '其他': [
+      'model:m_furn_cappa',
+      'model:m_furn_flowers',
+      'model:m_furn_fridge_2',
+      'model:m_furn_piano',
+      'model:m_furn_potplant',
+      'model:m_furn_refrigerator',
+      'model:m_furn_piano_stool',
+      'model:m_furn_frame_vatican',
+      'model:m_furn_frame_yosemite',
+      'model:m_furn_washer_dryer',
+    ],
   };
 
   /// 解析引用串；无法解析（未知前缀 / 未知 id）返回 null，由调用方过滤。

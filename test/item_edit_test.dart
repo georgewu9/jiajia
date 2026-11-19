@@ -98,6 +98,36 @@ void main() {
       expect(it.footprint.$2, closeTo(2.6, 1e-6));
     });
 
+    test('v0.1.37 offFloorMm：JSON 往返 off（mm 整数）+ 旧 JSON 宽容 null', () {
+      final p = FloorPlan();
+      p.items['a1'] = FurnitureItem(
+        id: 'a1',
+        kind: FurnitureKind.asset,
+        pos: const Vec2(1, 1),
+        modelId: 'm_courtyard_awning',
+        sizeW: 3.1,
+        sizeD: 1.69,
+        sizeH: 0.62,
+        offFloorMm: 1500,
+      );
+      final raw = p.toJsonString();
+      expect(raw.contains('"off":1500'), true, reason: 'JSON 键 off 应为 mm 整数');
+      expect(FloorPlan.fromJsonString(raw).items['a1']!.offFloorMm, 1500);
+      // 落地件：off=0 照写（放置路径显式写 0）；null 也可（旧数据）
+      final g = FurnitureItem(
+          id: 'g1', kind: FurnitureKind.asset, pos: const Vec2(0, 0));
+      expect(g.toJson().containsKey('off'), false);
+      final legacy = FloorPlan.fromJsonString(jsonEncode({
+        'name': 't',
+        'walls': <dynamic>[],
+        'openings': <dynamic>[],
+        'items': [
+          {'id': 'g1', 'kind': 'asset', 'model': 'm_furn_desk', 'x': 0, 'y': 0}
+        ],
+      }));
+      expect(legacy.items['g1']!.offFloorMm, isNull);
+    });
+
     test('v0.1.24 elevation：JSON 往返 el + 旧 JSON 默认 0', () {
       final p = FloorPlan();
       p.items['i1'] = FurnitureItem(
@@ -248,6 +278,72 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       expect(elField, findsNothing, reason: '非楼梯物品不应显示离地高度');
+    });
+
+    testWidgets('实模「离地高度」：±50 步进 + 应用写回 offFloorMm（2D 占地不变）',
+        (tester) async {
+      final (container, _) = await pumpEditorTall(tester);
+      await createRoom(tester);
+      final plan0 = container.read(editorDocProvider).plan;
+      var minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+      for (final w in plan0.walls.values) {
+        minX = math.min(minX, math.min(w.a.dx, w.b.dx));
+        maxX = math.max(maxX, math.max(w.a.dx, w.b.dx));
+        minY = math.min(minY, math.min(w.a.dy, w.b.dy));
+        maxY = math.max(maxY, w.b.dy);
+      }
+      final roomC = Vec2((minX + maxX) / 2, (minY + maxY) / 2);
+      final iid = plan0.newId('i');
+      container.read(editorDocProvider.notifier).mutate((p) {
+        p.items[iid] = FurnitureItem(
+          id: iid,
+          kind: FurnitureKind.asset,
+          pos: roomC,
+          modelId: 'm_courtyard_awning',
+          sizeW: 3.1,
+          sizeD: 1.69,
+          sizeH: 0.62,
+          offFloorMm: 1500,
+        );
+      });
+      await tester.pump();
+      final cRect = tester.getRect(find.byKey(const ValueKey('cv')));
+      final pt = worldToCanvas(cRect, plan0, roomC) + cRect.topLeft;
+
+      await tester.tap(find.text('选择'));
+      await tester.pump();
+      await tester.tapAt(pt);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('改尺寸'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final elField = find.byWidgetPredicate(
+        (w) =>
+            w is TextField &&
+            (w.decoration as InputDecoration).labelText == '离地高度 (mm)',
+      );
+      expect(elField, findsOneWidget, reason: '实模应显示离地高度输入框');
+      // 初值取 item.offFloorMm（1500）
+      expect(tester.widget<TextField>(elField).controller!.text, '1500');
+      // ±50 步进：+50 → 1550，−50 → 1500，再 −50 → 1450
+      await tester.tap(find.byKey(const ValueKey('lift_plus')));
+      await tester.pump();
+      expect(tester.widget<TextField>(elField).controller!.text, '1550');
+      await tester.tap(find.byKey(const ValueKey('lift_minus')));
+      await tester.pump();
+      expect(tester.widget<TextField>(elField).controller!.text, '1500');
+      await tester.tap(find.byKey(const ValueKey('lift_minus')));
+      await tester.pump();
+      expect(tester.widget<TextField>(elField).controller!.text, '1450');
+      await tester.tap(find.text('应用'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final it = container.read(editorDocProvider).plan.items[iid]!;
+      expect(it.offFloorMm, 1450, reason: '离地高度写回 mm 整数');
+      expect(it.footprint.$1, closeTo(3.1, 1e-3), reason: '2D 占地不受影响');
+      expect(it.elevation, 0, reason: 'offFloorMm 不写 elevation');
     });
 
     testWidgets('单击选开洞 → 操作条出现；沿墙拖动改 offset', (tester) async {

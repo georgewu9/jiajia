@@ -794,6 +794,9 @@
   function buildItems(plan) {
     plan.items.forEach(function (i) {
       // v0.1.20：自定义尺寸（米）→ 目录盒/模型等比缩放
+      // v0.1.37：实模离地高度（mm → 米）。awning 等吊装件挂在 off 高度上；
+      // 与楼梯的 i.el（楼层/错层整体抬升）相加，不互相覆盖。
+      var liftM = (typeof i.off === 'number' && isFinite(i.off)) ? i.off / 1000 : 0;
       var sw = (typeof i.sw === 'number') ? i.sw : null;
       var sd = (typeof i.sd === 'number') ? i.sd : null;
       var sh = (typeof i.sh === 'number') ? i.sh : null;
@@ -822,7 +825,7 @@
           var mlbl = makeLabel('模型缺失');
           mlbl.position.set(0, mxh + 0.22, 0);
           gmiss.add(mlbl);
-          gmiss.position.set(i.x, i.el || 0, i.y);
+          gmiss.position.set(i.x, (i.el || 0) + liftM, i.y);
           gmiss.rotation.y = -((i.rot || 0) * Math.PI / 180);
           gmiss.userData = { id: i.id, kind: i.kind, model: i.model,
                              placeholder: true, labelItem: true };
@@ -841,7 +844,8 @@
             var sy = sh != null && md.h ? sh / md.h : (sx + sz) / 2;
             mesh.scale.set(sx, sy, sz);
           }
-          mesh.position.set(i.x, 0, i.y);
+          // v0.1.37：底面按离地高度抬高（此前固定 0，连 i.el 也忽略了）
+          mesh.position.set(i.x, (i.el || 0) + liftM, i.y);
           mesh.rotation.y = -((i.rot || 0) * Math.PI / 180);
           // 栏杆素材（原 app 分类「栏杆」）统一改深灰 #2B2B2B（设计稿配色）。
           // 材质按实例 clone，避免污染 modelCache 里共享的 proto 材质。
@@ -1089,7 +1093,10 @@
           lib: o.userData.lib || null, meshes: meshes, verts: verts,
           placeholder: !!o.userData.placeholder,
           label: !!o.userData.labelItem,
-          size: [+sz.x.toFixed(3), +sz.y.toFixed(3), +sz.z.toFixed(3)] });
+          size: [+sz.x.toFixed(3), +sz.y.toFixed(3), +sz.z.toFixed(3)],
+          // v0.1.37：底面世界坐标（离地高度断言用：awning 应 ≈1.5）
+          min: [+box.min.x.toFixed(3), +box.min.y.toFixed(3),
+                +box.min.z.toFixed(3)] });
       });
       return out;
     },

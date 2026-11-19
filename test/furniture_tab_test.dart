@@ -9,17 +9,18 @@ import 'package:jiajia/features/floorplan/domain/furniture_tabs.dart';
 import 'package:jiajia/features/floorplan/presentation/floorplan_editor.dart';
 import 'package:jiajia/features/floorplan/state/editor_doc.dart';
 
-/// v0.1.31：模块 → 家具 一级入口 + 5 个二级分类（卧室/客餐厅/书房/厨房/其他）。
+/// v0.1.31：模块 → 家具 一级入口 + 5 个二级分类。
+/// v0.1.37：菜单重组——「厨房」→「厨卫」，旧 kind tile 按用户拍板删减，42 件实模进场。
 void main() {
-  group('domain: 家具分类表', () {
-    test('5 分类 + 数量 6/6/4/8/3', () {
-      expect(FurnitureTabs.cats, ['卧室', '客餐厅', '书房', '厨房', '其他']);
+  group('domain: 家具分类表（v0.1.37 重组）', () {
+    test('5 分类（含「厨卫」）+ 数量 6/12/4/19/10', () {
+      expect(FurnitureTabs.cats, ['卧室', '客餐厅', '书房', '厨卫', '其他']);
       expect(FurnitureTabs.items.length, 5);
       expect(FurnitureTabs.items['卧室']!.length, 6);
-      expect(FurnitureTabs.items['客餐厅']!.length, 6);
+      expect(FurnitureTabs.items['客餐厅']!.length, 12);
       expect(FurnitureTabs.items['书房']!.length, 4);
-      expect(FurnitureTabs.items['厨房']!.length, 8);
-      expect(FurnitureTabs.items['其他']!.length, 3);
+      expect(FurnitureTabs.items['厨卫']!.length, 19);
+      expect(FurnitureTabs.items['其他']!.length, 10);
       // 每个分类下解析出的项数与引用数一致（没有解析失败被过滤掉）
       for (final c in FurnitureTabs.cats) {
         expect(
@@ -27,6 +28,104 @@ void main() {
           FurnitureTabs.items[c]!.length,
           reason: '$c 有引用解析失败',
         );
+      }
+    });
+
+    test('各 tab 的 tile 集合逐一钉死（顺序 + ref）', () {
+      expect(FurnitureTabs.items['卧室'], [
+        'kind:bed',
+        'kind:wardrobe',
+        'model:m_furn_upper_cab_2d',
+        'model:m_furn_dresser',
+        'model:m_furn_bed',
+        'model:m_furn_pantry',
+      ]);
+      expect(FurnitureTabs.items['客餐厅'], [
+        'kind:sofa',
+        'kind:table',
+        'kind:chair',
+        'model:m_furn_office_chair',
+        'model:m_furn_sofa_cherry',
+        'model:m_furn_sofa_cushion',
+        'model:m_furn_coffee_table',
+        'model:m_furn_sofa_large',
+        'model:m_furn_chest_tall',
+        'model:m_furn_table_round',
+        'model:m_furn_armchair',
+        'model:m_furn_table_low',
+      ]);
+      expect(FurnitureTabs.items['书房'], [
+        'model:m_furn_armoire',
+        'model:m_furn_office_chair',
+        'model:m_furn_desk',
+        'model:m_furn_stool',
+      ]);
+      expect(FurnitureTabs.items['厨卫'], [
+        'kind:fridge',
+        'kind:washer',
+        'model:m_furn_lower_cab_1d',
+        'model:m_furn_upper_cab_1d',
+        'model:m_furn_lower_cab_2d',
+        'model:m_furn_upper_cab_2d',
+        'model:m_furn_cab_3draw',
+        'model:m_furn_shower_tray',
+        'model:m_furn_vanity',
+        'model:m_furn_jacuzzi',
+        'model:m_furn_corner_cab',
+        'model:m_furn_shower_room',
+        'model:m_furn_hob',
+        'model:m_furn_island',
+        'model:m_furn_marble_sink',
+        'model:m_furn_mirror',
+        'model:m_furn_shower_cabin',
+        'model:m_furn_toilet',
+        'model:m_furn_basin',
+      ]);
+      expect(FurnitureTabs.items['其他'], [
+        'model:m_furn_cappa',
+        'model:m_furn_flowers',
+        'model:m_furn_fridge_2',
+        'model:m_furn_piano',
+        'model:m_furn_potplant',
+        'model:m_furn_refrigerator',
+        'model:m_furn_piano_stool',
+        'model:m_furn_frame_vatican',
+        'model:m_furn_frame_yosemite',
+        'model:m_furn_washer_dryer',
+      ]);
+    });
+
+    test('被删的旧 kind tile 不再出现（kind 本体仍在目录里）', () {
+      final all = [
+        for (final c in FurnitureTabs.cats) ...FurnitureTabs.items[c]!,
+      ];
+      // 客餐厅删：电视柜 / 置物架 / 鞋柜 / 茶几
+      // 卧室删：电视柜 / 梳妆台 / 置物架 / 书桌
+      for (final gone in [
+        'kind:tv',
+        'kind:shelf',
+        'kind:shoe',
+        'kind:coffee',
+        'kind:desk',
+        'model:shuzhuangtai',
+      ]) {
+        expect(all.contains(gone), false, reason: '$gone 应已从菜单移除');
+      }
+      // 旧 kind 本体仍可解析（只是不进菜单）：改动只删 tab 条目
+      for (final keep in ['kind:tv', 'kind:shelf', 'kind:desk', 'kind:coffee']) {
+        expect(FurnitureTabs.resolve(keep), isNotNull, reason: keep);
+      }
+      expect(FurnitureTabs.resolve('model:shuzhuangtai')?.label, '梳妆台');
+      // 厨卫只留 冰箱 / 洗衣机 两个 kind
+      final kitchenKinds = FurnitureTabs.items['厨卫']!
+          .where((r) => r.startsWith('kind:'))
+          .toList();
+      expect(kitchenKinds, ['kind:fridge', 'kind:washer']);
+      // 书房 / 其他：无任何 kind 条目
+      for (final c in ['书房', '其他']) {
+        expect(FurnitureTabs.items[c]!.every((r) => r.startsWith('model:')),
+            true,
+            reason: '$c 应只剩实模条目');
       }
     });
 
@@ -47,34 +146,42 @@ void main() {
       expect(FurnitureTabs.resolve('bogus'), isNull);
     });
 
-    test('跨分类复用：书桌出现 2 次（卧室 + 书房）', () {
+    test('跨分类复用：办公椅 2 次（书房+客餐厅）、双门吊柜 2 次（卧室+厨卫）', () {
       final refs = [
         for (final c in FurnitureTabs.cats) ...FurnitureTabs.items[c]!,
       ];
-      expect(refs.where((r) => r == 'kind:desk').length, 2);
-      // 卧室/书房都能解析出「书桌」
-      for (final c in ['卧室', '书房']) {
+      expect(refs.where((r) => r == 'model:m_furn_office_chair').length, 2);
+      expect(refs.where((r) => r == 'model:m_furn_upper_cab_2d').length, 2);
+      for (final c in ['书房', '客餐厅']) {
         expect(
-          FurnitureTabs.ofCat(c).any((it) => it.label == '书桌'),
+          FurnitureTabs.ofCat(c).any((it) => it.label == '办公椅'),
           true,
-          reason: '$c 缺书桌',
+          reason: '$c 缺办公椅',
         );
       }
+      for (final c in ['卧室', '厨卫']) {
+        expect(
+          FurnitureTabs.ofCat(c).any((it) => it.label == '双门吊柜'),
+          true,
+          reason: '$c 缺双门吊柜',
+        );
+      }
+      // 44 条实模引用 + 7 条 kind = 51 条
+      expect(refs.length, 51);
+      expect(refs.where((r) => r.startsWith('model:')).length, 44);
     });
 
     test('批准映射的落地结果（以代码标签为准）', () {
-      // 梳妆台 = ModelItems 的 shuzhuangtai（台面/五金），不是 FurnitureKind
+      // 梳妆台/暖气片仍在 ModelItems 里（只是不进家具菜单）
       final vanity = FurnitureTabs.resolve('model:shuzhuangtai')!;
       expect(vanity.label, '梳妆台');
       expect(vanity.model!.floorKind, FurnitureKind.vanity);
-      expect(vanity.model!.icon, isNotNull);
-      // 暖气片 = nuanqipian / radiator（FurnitureKind.heater 实为「热水器」，不用它）
       final rad = FurnitureTabs.resolve('model:nuanqipian')!;
       expect(rad.label, '暖气片');
       expect(rad.model!.floorKind, FurnitureKind.radiator);
-      // 5 个分类里的中文名（测试 ② 依赖这几个）
+      // 保留的 kind 中文名
       expect(FurnitureTabs.resolve('kind:fridge')!.label, '冰箱');
-      expect(FurnitureTabs.resolve('kind:hood')!.label, '烟机');
+      expect(FurnitureTabs.resolve('kind:washer')!.label, '洗衣机');
       expect(FurnitureTabs.resolve('kind:bed')!.label, '床');
     });
   });
@@ -111,19 +218,22 @@ void main() {
   }
 
   group('editor: 模块 → 家具 抽屉', () {
-    testWidgets('切「厨房」→ 冰箱/烟机；切「卧室」→ 床', (tester) async {
+    testWidgets('切「厨卫」→ 冰箱/洗衣机/单门地柜；切「卧室」→ 床/衣柜',
+        (tester) async {
       await pumpEditorTall(tester);
       await openFurnitureSheet(tester);
 
       // 默认「卧室」
       expect(find.text('床'), findsOneWidget);
-      expect(find.text('梳妆台'), findsOneWidget);
+      expect(find.text('衣柜'), findsOneWidget);
+      expect(find.text('梳妆台'), findsNothing); // v0.1.37 已删
 
-      await tester.tap(find.widgetWithText(ChoiceChip, '厨房'));
+      await tester.tap(find.widgetWithText(ChoiceChip, '厨卫'));
       await tester.pump();
       expect(find.text('冰箱'), findsOneWidget);
-      expect(find.text('烟机'), findsOneWidget);
-      expect(find.text('暖气片'), findsOneWidget);
+      expect(find.text('洗衣机'), findsOneWidget);
+      expect(find.text('单门地柜'), findsOneWidget);
+      expect(find.text('燃气灶'), findsOneWidget);
       expect(find.text('床'), findsNothing); // 换列表了
 
       await tester.tap(find.widgetWithText(ChoiceChip, '卧室'));
@@ -169,10 +279,11 @@ void main() {
       expect(chip.backgroundColor, JiajiaColors.accentSoft);
     });
 
-    testWidgets('选「梳妆台」（model 素材）→ 走 model 放置路径', (tester) async {
+    testWidgets('选「斗柜」（model 素材）→ 走 model 放置路径 + spec 尺寸（米）',
+        (tester) async {
       final container = await pumpEditorTall(tester);
       await openFurnitureSheet(tester);
-      await tester.tap(find.text('梳妆台'));
+      await tester.tap(find.text('斗柜'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
@@ -182,11 +293,16 @@ void main() {
 
       final plan = container.read(editorDocProvider).plan;
       expect(plan.items.length, 1);
-      expect(plan.items.values.first.kind, FurnitureKind.vanity);
-      expect(
-        plan.items.values.first.modelId,
-        isNull,
-      ); // ModelSpec 路径：kind=vanity
+      final it = plan.items.values.first;
+      expect(it.kind, FurnitureKind.asset);
+      expect(it.modelId, 'm_furn_dresser');
+      expect(it.sizeW, closeTo(1.436, 0.001));
+      expect(it.sizeD, closeTo(0.485, 0.001));
+      expect(it.sizeH, closeTo(0.642, 0.001));
+      // 保存/加载不丢
+      final back = FloorPlan.fromJsonString(plan.toJsonString()).items.values.first;
+      expect(back.modelId, 'm_furn_dresser');
+      expect(back.sizeH, closeTo(0.642, 0.001));
     });
   });
 
@@ -221,7 +337,7 @@ void main() {
       expect(tester.takeException(), isNull);
 
       // 固定 tile 不随分类消失
-      await tester.tap(find.widgetWithText(ChoiceChip, '厨房'));
+      await tester.tap(find.widgetWithText(ChoiceChip, '厨卫'));
       await tester.pump();
       expect(find.byKey(const ValueKey('import_obj_tile')), findsOneWidget);
       expect(find.text('导入模型…'), findsOneWidget);
