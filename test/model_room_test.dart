@@ -109,10 +109,10 @@ void main() {
   });
 
   group('model: 模型目录（原 app 图标）', () {
-    test('目录齐 + 44 件（v0.1.34：+7 个 CC0 门窗实模）', () {
+    test('目录齐 + 56 件（v0.1.36：+12 件庭院 OBJ）', () {
       expect(ModelItems.categories,
-          ['门', '窗', '柱', '梁', '楼梯', '台面/五金', '特殊墙窗']);
-      expect(ModelItems.all.length, 44);
+          ['门', '窗', '柱', '梁', '楼梯', '台面/五金', '特殊墙窗', '庭院']);
+      expect(ModelItems.all.length, 56);
       expect(ModelItems.ofCategory('门').length, 11);
       expect(ModelItems.ofCategory('窗').length, 8);
       expect(ModelItems.ofCategory('柱').length, 2);
@@ -120,6 +120,7 @@ void main() {
       expect(ModelItems.ofCategory('楼梯').length, 4);
       expect(ModelItems.ofCategory('台面/五金').length, 12);
       expect(ModelItems.ofCategory('特殊墙窗').length, 2);
+      expect(ModelItems.ofCategory('庭院').length, 12);
       // 梁柱菜单 = 柱 + 梁 = 7 件（台面/五金 12 件不再进该菜单）
       final liangzhu = ModelItems.byCategories(['柱', '梁']);
       expect(liangzhu.length, 7);

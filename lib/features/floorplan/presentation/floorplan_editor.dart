@@ -649,6 +649,15 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                 ),
                 // v0.1.31：第 7 入口「家具」→ 单 sheet（5 分类 chips + 素材网格）
                 _moduleEntry('家具', Icons.bed, _openFurnitureSheet),
+                // v0.1.36：第 8 入口「庭院」→ 12 件 CC0/CC-BY 庭院 OBJ（地面摆放）
+                _moduleEntry(
+                  '庭院',
+                  Icons.park,
+                  () => _openModuleModelsSheet(
+                    '庭院 · 素材',
+                    ModelItems.ofCategory('庭院'),
+                  ),
+                ),
               ],
             ),
           ],
@@ -771,12 +780,41 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                           m.specText,
                           style: TextStyle(color: JiajiaColors.text2, fontSize: 9),
                         ),
+                        // v0.1.36：CC-BY 素材角标（fountain 必须让用户看到署名协议）
+                        if (m.credit != null)
+                          Container(
+                            margin: const EdgeInsets.only(top: 2),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 4, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: JiajiaColors.accentSoft,
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                            child: const Text(
+                              'CC-BY',
+                              style: TextStyle(
+                                color: JiajiaColors.accent,
+                                fontSize: 8,
+                                height: 1.1,
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),
                 );
               },
             ),
+            // v0.1.36：CC-BY 素材完整署名（app 无「关于/设置」页，落在素材 sheet 底部）
+            if (items.any((m) => m.credit != null)) ...[
+              const SizedBox(height: 10),
+              const Divider(height: 1, color: JiajiaColors.line),
+              const SizedBox(height: 6),
+              Text(
+                '3D 素材署名：${items.where((m) => m.credit != null).map((m) => '${m.label} — ${m.credit}').join('；')}',
+                style: const TextStyle(color: JiajiaColors.text2, fontSize: 9),
+              ),
+            ],
           ],
         ),
       ),
@@ -999,6 +1037,12 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
           id: fid,
           kind: m.floorKind ?? FurnitureKind.asset,
           pos: _snapPoint(world, plan),
+          // v0.1.36：庭院等 floor 实模素材——挂 modelId 走 models_ext.js 查表，
+          // 尺寸取 spec（米）；双击可改（sizeW/D/H 覆盖）。
+          modelId: m.modelId,
+          sizeW: m.specWmm == null ? null : m.specWmm! / 1000,
+          sizeD: m.specDmm == null ? null : m.specDmm! / 1000,
+          sizeH: m.specHmm == null ? null : m.specHmm! / 1000,
         );
         _sel = _Sel(fid, 'item');
       });
@@ -1987,6 +2031,9 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
 String _itemLabelOf(FurnitureItem i) {
   final mid = i.modelId;
   if (mid != null) {
+    // v0.1.36：庭院等 floor 实模素材的显示名从 ModelSpec 取（ModelAssets 只认原 app 数字 id）
+    final spec = ModelItems.byId(mid);
+    if (spec != null) return spec.label;
     return ModelAssets.byId(mid)?.label ?? FurnitureCatalog.labelOf(i.kind);
   }
   if (i.kind == FurnitureKind.lib) {

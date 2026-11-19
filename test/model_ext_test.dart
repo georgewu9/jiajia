@@ -52,7 +52,9 @@ void main() {
     });
 
     test('规格尺寸（mm）与 models_ext w/d/h（米）一致', () {
-      for (final m in ModelItems.all.where((m) => m.modelId != null)) {
+      // 只看门窗（place=wall）；v0.1.36 庭院 floor 素材同样挂 modelId，不在本表
+      for (final m in ModelItems.all
+          .where((m) => m.modelId != null && m.place == ModelPlace.wall)) {
         final s = specs[m.id]!;
         expect(m.defaultWmm, (s.$1 * 1000).round(), reason: '${m.id} 宽');
         expect(m.heightMm, (s.$3 * 1000).round(), reason: '${m.id} 高');
