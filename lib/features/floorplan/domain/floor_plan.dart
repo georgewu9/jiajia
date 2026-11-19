@@ -210,6 +210,9 @@ enum FurnitureKind {
   pipeCase,
   barePipe,
   platform,
+
+  /// 用户导入的模型库（外部 OBJ，见 LibModelsStore）；实际几何由 item.lib 决定。
+  lib,
 }
 
 class FurnitureCatalog {
@@ -263,6 +266,8 @@ class FurnitureCatalog {
     FurnitureKind.pipeCase: (0.35, 0.35, 2.8, 0xE3E3E3),
     FurnitureKind.barePipe: (0.15, 0.15, 2.8, 0xBFC6CE),
     FurnitureKind.platform: (1.5, 1.2, 0.15, 0xE8E8E8),
+    // 外部模型库占位（实际尺寸取 item.sizeW/D/H，颜色仅 2D/3D 缺库时兜底）
+    FurnitureKind.lib: (1.0, 0.6, 1.0, 0x8F8F8F),
   };
 
   /// 家具工具栏可选种类（不含素材模型 asset —— 走「素材」入口）。
@@ -336,6 +341,7 @@ class FurnitureCatalog {
       FurnitureKind.pipeCase: '包管道',
       FurnitureKind.barePipe: '裸管',
       FurnitureKind.platform: '地台',
+      FurnitureKind.lib: '库模型',
     };
     // 防崩：新加的 kind 若漏补 label（names 缺键），`!` 会空指针崩画布。
     return names[k] ?? k.name;
@@ -352,6 +358,8 @@ class FurnitureItem {
   double? sizeW, sizeD, sizeH;
   // v0.1.24：整体离地高度（米，默认 0；楼梯用于二楼/错层，JSON 键 el）
   double elevation;
+  // v0.1.31：模型库 id（kind=lib 时指向 LibModelsStore 的一条；JSON 键 lib）
+  String? lib;
 
   FurnitureItem({
     required this.id,
@@ -363,6 +371,7 @@ class FurnitureItem {
     this.sizeD,
     this.sizeH,
     this.elevation = 0,
+    this.lib,
   });
 
   /// 目录/素材默认占地（宽×深×高，米）。
@@ -389,6 +398,7 @@ class FurnitureItem {
     'x': pos.toJson()['x'],
     'y': pos.toJson()['y'],
     'rot': rotationDeg.round(),
+    if (lib != null) 'lib': lib,
     if (sizeW != null) 'sw': sizeW,
     if (sizeD != null) 'sd': sizeD,
     if (sizeH != null) 'sh': sizeH,
@@ -485,6 +495,8 @@ class FloorPlan {
         sizeH: (i['sh'] as num?)?.toDouble(),
         // 旧 JSON 无 el 字段 → 离地 0
         elevation: (i['el'] as num?)?.toDouble() ?? 0,
+        // 旧 JSON 无 lib 字段 → null（宽容解析）
+        lib: i['lib'] as String?,
       );
       p._seq = p.maxSeq(p._seq, i['id'] as String, 'i');
     }

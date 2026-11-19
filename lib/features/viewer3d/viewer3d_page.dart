@@ -8,6 +8,7 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../../../app/theme.dart';
 import '../../../diag/boot_log.dart' show bootLog;
 import '../floorplan/state/editor_doc.dart';
+import '../floorplan/state/lib_models_store.dart';
 
 /// 3D 浏览页：Three.js 跑在本地 WebView（离线资源 assets/web/），
 /// 与 2D 编辑器共用同一份户型数据（editorDocProvider），编辑即实时同步。
@@ -101,7 +102,16 @@ class _Viewer3dPageState extends ConsumerState<Viewer3dPage> {
   Future<void> _pushPlan() async {
     final c = _ctrl;
     if (c == null || !_jsReady) return;
-    final json = ref.read(editorDocProvider).plan.toJsonString();
+    final plan = ref.read(editorDocProvider).plan;
+    final data = plan.toJson();
+    // 模型库：只下发本户型 items 引用到的条（OBJ 文本可达 MB 级，不能全量塞）。
+    // 读库失败/库缺失 → 空数组，viewer.js 对 kind=lib 回退占位盒 + 名字。
+    try {
+      data['libs'] = await LibModelsStore.payloadForPlan(plan);
+    } catch (_) {
+      data['libs'] = const <Map<String, dynamic>>[];
+    }
+    final json = jsonEncode(data);
     await c.runJavaScript(
         "window.jiajia.setPlan(${_jsStringLiteral(json)})");
   }

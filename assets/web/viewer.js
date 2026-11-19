@@ -1,7 +1,8 @@
 /* jiajia 3D 场景：户型 → 三维。单位：米。
  * 数据契约（Dart FloorPlan.toJsonString()）:
  * { name, walls:[{id,ax,ay,bx,by,t,h}], openings:[{id,wall,kind,off,w,sill}],
- *   items:[{id,kind,x,y,rot}] }
+ *   items:[{id,kind,x,y,rot,model?,lib?,sw?,sd?,sh?,el?}],
+ *   libs:[{id,n,obj,w,d,h,c}] }   // libs 只含本户型 kind=lib 引用到的库模型
  * 桥：window.dart.postMessage(JSON.stringify({type,...}))
  *     Dart 调 window.jiajia.setPlan(jsonStr) / .setMode('top'|'orbit'|'first')
  */
@@ -56,6 +57,8 @@
     pipeCase: [0.35, 0.35, 2.8, 0xe3e3e3],
     barePipe: [0.15, 0.15, 2.8, 0xbfc6ce],
     platform: [1.5, 1.2, 0.15, 0xe8e8e8],
+    // 外部模型库（kind=lib）：尺寸取 item.sw/sd/sh，缺库/缺尺寸时兜底占位盒
+    lib: [1.0, 0.6, 1.0, 0x8f8f8f],
   };
 
   // v0.1.26 亮色建筑风配色（设计稿「图2」）：天蓝背景 + 白地 + 淡灰墙 + 深灰线条。
@@ -375,6 +378,87 @@
     return outer;
   }
 
+  // ---------- 模型库（外部 OBJ）：复用同一条 parseOBJ，三轴 fit 到目标 w/d/h ----------
+  // 与内置 JJ_MODELS 的区别：库模型的目标尺寸来自 LibModel（用户可改），
+  // 三个轴分别缩放（OBJ 单位可能是 mm/cm/inch，按目标盒强行归一）。
+  var libCache = {};
+  function findLib(libs, id) {
+    if (!libs || !id) return null;
+    for (var i = 0; i < libs.length; i++) {
+      if (libs[i].id === id) return libs[i];
+    }
+    return null;
+  }
+
+  function libGeometry(lib) {
+    var key = lib.id + '|' + lib.w + '|' + lib.d + '|' + lib.h;
+    if (libCache[key]) return libCache[key];
+    if (!lib.obj) return null;
+    var parsed = parseOBJ(lib.obj);
+    var color = (typeof lib.c === 'number') ? lib.c : 0x8f8f8f;
+    var meshes = [];
+    for (var i = 0; i < parsed.mats.length; i++) {
+      var matName = parsed.mats[i];
+      var arr = parsed.groups[matName];
+      if (!arr || arr.length < 3) continue;
+      var geo = new THREE.BufferGeometry();
+      var pos = new Float32Array(arr.length * 3);
+      for (var a = 0; a < arr.length; a++) {
+        var v = parsed.verts[arr[a] - 1];
+        if (!v) continue; // 越界索引 → 该顶点留 (0,0,0)，不抛
+        pos[a * 3] = v[0]; pos[a * 3 + 1] = v[1]; pos[a * 3 + 2] = v[2];
+      }
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.computeVertexNormals();
+      meshes.push(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+        color: color, side: THREE.DoubleSide })));
+    }
+    if (!meshes.length) return null;
+    var inner = new THREE.Group();
+    meshes.forEach(function (m) { inner.add(m); });
+    var bb = new THREE.Box3().setFromObject(inner);
+    var size = bb.getSize(new THREE.Vector3());
+    var tw = lib.w > 0 ? lib.w : 1.0;
+    var td = lib.d > 0 ? lib.d : 0.6;
+    var th = lib.h > 0 ? lib.h : 1.0;
+    inner.scale.set(size.x > 1e-6 ? tw / size.x : 1,
+                    size.y > 1e-6 ? th / size.y : 1,
+                    size.z > 1e-6 ? td / size.z : 1);
+    inner.updateMatrixWorld(true);
+    bb = new THREE.Box3().setFromObject(inner);
+    var c = bb.getCenter(new THREE.Vector3());
+    inner.position.x = -c.x;
+    inner.position.z = -c.z;
+    inner.position.y = -bb.min.y; // 落地面
+    var outer = new THREE.Group();
+    outer.add(inner);
+    libCache[key] = outer;
+    return outer;
+  }
+
+  // 缺库回退：占位盒上方用 canvas 纹理贴名字（不引入字体 loader）。
+  function makeLabel(text) {
+    var s = String(text || '库模型');
+    var cv = document.createElement('canvas');
+    cv.width = 512; cv.height = 128;
+    var g = cv.getContext('2d');
+    g.clearRect(0, 0, cv.width, cv.height);
+    g.font = 'bold 56px sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    var tw = g.measureText(s).width;
+    g.fillStyle = 'rgba(255,255,255,0.85)';
+    g.fillRect((cv.width - tw) / 2 - 12, 20, tw + 24, 88);
+    g.fillStyle = '#333333';
+    g.fillText(s, cv.width / 2, cv.height / 2);
+    var tex = new THREE.CanvasTexture(cv);
+    tex.needsUpdate = true;
+    var sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: tex, transparent: true, depthWrite: false }));
+    sp.scale.set(1.5, 0.375, 1);
+    return sp;
+  }
+
   // v0.1.22：程序化楼梯（stair/stairL/stairR 无 OBJ 模型时回退，不再是方盒子）
   // stepH=总高/步数，run1=直段步数，turn=转折（L 型有 90° 拐弯），run2=拐弯后步数
   function buildStairs(kind, w, d, h, color, x, y, rotDeg, elev) {
@@ -466,6 +550,48 @@
       }
       var spec = CATALOG[i.kind];
       if (!spec) return;
+      // 模型库（外部 OBJ）：i.kind === 'lib' 时按 i.lib 在 plan.libs 里查；
+      // 查到 → 同一 parseOBJ 管线出 mesh（fit 到目标尺寸），查不到 → 占位盒+名字。
+      if (i.kind === 'lib') {
+        var lib = findLib(plan.libs, i.lib);
+        if (lib) {
+          var proto = libGeometry(lib);
+          if (proto) {
+            var inst = proto.clone(true);
+            var sx = (sw != null && lib.w) ? sw / lib.w : 1;
+            var sz = (sd != null && lib.d) ? sd / lib.d : 1;
+            var sy = (sh != null && lib.h) ? sh / lib.h : (sx + sz) / 2;
+            inst.scale.set(sx, sy, sz);
+            inst.position.set(i.x, i.el || 0, i.y);
+            inst.rotation.y = -((i.rot || 0) * Math.PI / 180);
+            inst.userData = { id: i.id, kind: i.kind, lib: lib.id,
+                              placeholder: false };
+            root.add(inst);
+            return;
+          }
+        }
+        // 旧数据 / 未导入库：占位盒 + 名字（绝不崩），尺寸按 item/catalog 兜底
+        var lbw = sw != null ? sw : (lib && lib.w > 0 ? lib.w : spec[0]);
+        var lbd = sd != null ? sd : (lib && lib.d > 0 ? lib.d : spec[1]);
+        var lbh = sh != null ? sh : (lib && lib.h > 0 ? lib.h : spec[2]);
+        var lbc = (lib && typeof lib.c === 'number') ? lib.c : spec[3];
+        var grp = new THREE.Group();
+        var pbox = new THREE.Mesh(new THREE.BoxGeometry(lbw, lbh, lbd),
+            new THREE.MeshStandardMaterial({
+              color: lbc, transparent: true, opacity: 0.55 }));
+        pbox.position.y = lbh / 2;
+        grp.add(pbox);
+        var lbl = makeLabel((lib && lib.n) || '库模型');
+        lbl.position.set(0, lbh + 0.22, 0);
+        grp.add(lbl);
+        grp.position.set(i.x, i.el || 0, i.y);
+        grp.rotation.y = -((i.rot || 0) * Math.PI / 180);
+        grp.userData = { id: i.id, kind: i.kind,
+                         lib: lib ? lib.id : (i.lib || null),
+                         placeholder: true, labelItem: true };
+        root.add(grp);
+        return;
+      }
       var bw = sw != null ? sw : spec[0];
       var bd = sd != null ? sd : spec[1];
       var bh = sh != null ? sh : spec[2];
@@ -620,6 +746,31 @@
             z: +g.position.z.toFixed(3), w: g.geometry.parameters.width };
         }),
       };
+    },
+    // 调试探针：家具/库模型实体（自动化验证用；不改变 UI）
+    debugItems: function () {
+      var out = [];
+      root.children.forEach(function (o) {
+        if (!o.userData || !o.userData.id) return;
+        var meshes = 0, verts = 0;
+        o.traverse(function (c) {
+          if (c.isMesh) {
+            meshes++;
+            if (c.geometry && c.geometry.attributes &&
+                c.geometry.attributes.position) {
+              verts += c.geometry.attributes.position.count;
+            }
+          }
+        });
+        var box = new THREE.Box3().setFromObject(o);
+        var sz = box.getSize(new THREE.Vector3());
+        out.push({ id: o.userData.id, kind: o.userData.kind,
+          lib: o.userData.lib || null, meshes: meshes, verts: verts,
+          placeholder: !!o.userData.placeholder,
+          label: !!o.userData.labelItem,
+          size: [+sz.x.toFixed(3), +sz.y.toFixed(3), +sz.z.toFixed(3)] });
+      });
+      return out;
     },
     setMode: function (m) {
       mode = m;
