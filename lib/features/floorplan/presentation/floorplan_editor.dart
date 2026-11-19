@@ -71,7 +71,11 @@ class CameraCtrl {
 }
 
 class FloorplanEditorPage extends ConsumerStatefulWidget {
-  const FloorplanEditorPage({super.key});
+  const FloorplanEditorPage({super.key, this.store});
+
+  /// 可注入的存储（单测传临时目录）：保存 + 回写原路径都走它；
+  /// 默认 null → 生产用 `PlanStore()`（app 文档目录）。
+  final PlanStore? store;
 
   @override
   ConsumerState<FloorplanEditorPage> createState() =>
@@ -79,7 +83,7 @@ class FloorplanEditorPage extends ConsumerStatefulWidget {
 }
 
 class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
-  EditorTool _tool = EditorTool.wall;
+  EditorTool _tool = EditorTool.select;
   FurnitureKind _furnKind = FurnitureKind.sofa;
   _Sel? _sel;
   Vec2? _wallStart; // 画墙拖拽起点
@@ -272,7 +276,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          '单指拖拽画墙（直线）· 端点自动吸附 · 45°角锁定\n双击墙体：设尺寸 mm / 加门洞',
+                          '点「画墙」后单指拖拽画墙（直线）· 端点自动吸附 · 45°角锁定\n双击墙体：设尺寸 mm / 加门洞',
                           style: TextStyle(
                             color: JiajiaColors.text2,
                             fontSize: 11,
@@ -1333,12 +1337,19 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     );
   }
 
+  /// 当前存储：注入优先（单测），否则生产默认。
+  PlanStore get _store => widget.store ?? PlanStore();
+
+  /// 测试/调试用：当前相机平移量（T4 断言「相机没被拖动」）。
+  Offset get cameraPan => _cam.pan;
+
   Future<void> _save(BuildContext context, FloorPlan plan) async {
     try {
-      await PlanStore().save(plan);
+      // v0.1.33：保存到私有目录；导入来的户型再回写一次原文件（同次 JSON 字节）
+      final msg = await PlanIo.saveAndSync(_store, plan);
       if (context.mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('已保存')));
+            .showSnackBar(SnackBar(content: Text(msg)));
       }
     } catch (_) {
       if (context.mounted) {
@@ -1396,8 +1407,25 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
         setState(() {});
       case EditorTool.select:
         final hit = _hitTest(plan, world);
-        _draggingItem =
-            hit != null && hit.id == _sel?.id && hit.type == 'item';
+        // v0.1.33 T4：拖物品的判定不能只看「精确命中已选物品」——手指稍偏
+        // 0.05m 就落进相机平移分支（用户报「选中茶几一拖整个户型图在动」）。
+        //   ① 精确命中物品（无论是否被选）→ 按下即选中并进入拖物品；
+        //   ② 未精确命中，但按点贴着「已选物品」中心（≤ 半对角线 + 0.35m）
+        //      且没命中墙 → 仍算拖物品（贴着它拖 = 拖它；空白远处拖 = 移相机）。
+        _draggingItem = false;
+        if (hit != null && hit.type == 'item') {
+          _draggingItem = true;
+          if (hit.id != _sel?.id) {
+            setState(() => _sel = hit); // 按下即选中（原 app「长按模型再拖」语义）
+          }
+        } else if (_sel?.type == 'item' && hit?.type != 'wall') {
+          final item = plan.items[_sel!.id];
+          if (item != null) {
+            final (fw, fd) = item.footprint;
+            final reach = math.sqrt(fw * fw + fd * fd) / 2 + 0.35;
+            _draggingItem = world.distanceTo(item.pos) <= reach;
+          }
+        }
         _draggingOpening =
             hit != null && hit.id == _sel?.id && hit.type == 'opening';
         // 按住「选中的墙」→ 平移该墙（含墙上门窗）；按住别处 → 平移相机

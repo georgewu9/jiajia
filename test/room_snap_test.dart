@@ -74,6 +74,9 @@ void main() {
     testWidgets('端点磁吸：第二面墙起点精确落在第一面墙端点上', (tester) async {
       final (container, _) = await pumpEditor(tester);
       final cv = find.byKey(const ValueKey('cv'));
+      // v0.1.33 起默认工具是「选择」→ 先显式点「画墙」
+      await tester.tap(find.text('画墙'));
+      await tester.pump();
       // 第一面墙：画布中心向右拖 270px（3m）
       await tester.drag(cv, const Offset(270, 0));
       await tester.pump();
@@ -103,6 +106,8 @@ void main() {
     testWidgets('45° 角锁定：斜 4px 拖拽 → 墙横平竖直', (tester) async {
       final (container, _) = await pumpEditor(tester);
       final cv = find.byKey(const ValueKey('cv'));
+      await tester.tap(find.text('画墙'));
+      await tester.pump();
       // 向右 100px、向下 4px（~2° 斜）：应锁定为水平
       await tester.drag(cv, const Offset(100, 4));
       await tester.pump();
@@ -115,6 +120,8 @@ void main() {
     testWidgets('画墙起点 = 手指按下处（grid 精度 0.05m 内）', (tester) async {
       final (container, _) = await pumpEditor(tester);
       final cv = find.byKey(const ValueKey('cv'));
+      await tester.tap(find.text('画墙'));
+      await tester.pump();
       await tester.drag(cv, const Offset(200, 150));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));

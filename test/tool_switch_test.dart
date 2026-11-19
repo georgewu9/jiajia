@@ -41,15 +41,30 @@ void main() {
     return chip.backgroundColor == JiajiaColors.accentSoft;
   }
 
+  testWidgets('v0.1.33：打开编辑器默认「选择」而非「画墙」', (tester) async {
+    await pumpEditorTall(tester);
+    expect(chipLit(tester, '选择'), true, reason: '打开编辑器应默认选中「选择」');
+    expect(chipLit(tester, '画墙'), false, reason: '默认不应点亮「画墙」');
+    expect(chipLit(tester, '建房'), false);
+  });
+
   testWidgets('「画墙」和「建房」高亮互不影响', (tester) async {
     await pumpEditorTall(tester);
 
-    // 初始工具 = 画墙：只有「画墙」亮，「建房」不亮
+    // 初始工具 = 选择（v0.1.33 起默认不画墙）：只有「选择」亮，「画墙」不亮
     // （旧 bug：建房 chip 也用 EditorTool.wall → 两个同时亮）
-    expect(chipLit(tester, '画墙'), true, reason: '默认应为画墙工具');
+    expect(chipLit(tester, '选择'), true, reason: '默认应为选择工具（v0.1.33）');
+    expect(chipLit(tester, '画墙'), false, reason: '默认不应点亮画墙');
     expect(chipLit(tester, '建房'), false, reason: '建房不应跟着画墙一起亮');
 
-    // 切到「选择」：只有「选择」亮
+    // 切到「画墙」：只有「画墙」亮
+    await tester.tap(find.text('画墙'));
+    await tester.pump();
+    expect(chipLit(tester, '画墙'), true);
+    expect(chipLit(tester, '选择'), false);
+    expect(chipLit(tester, '建房'), false);
+
+    // 切回「选择」：只有「选择」亮
     await tester.tap(find.text('选择'));
     await tester.pump();
     expect(chipLit(tester, '选择'), true);
@@ -89,7 +104,10 @@ void main() {
 
   testWidgets('画完一面墙 → 自动切回「选择」工具', (tester) async {
     await pumpEditorTall(tester);
-    expect(chipLit(tester, '画墙'), true, reason: '默认应为画墙工具');
+    // v0.1.33 起默认是「选择」，先切到「画墙」
+    await tester.tap(find.text('画墙'));
+    await tester.pump();
+    expect(chipLit(tester, '画墙'), true, reason: '点画墙后应点亮');
 
     // 画布中心单指拖 → 生成一面墙
     await tester.drag(find.byKey(const ValueKey('cv')), const Offset(300, 0));

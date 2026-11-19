@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -84,11 +85,48 @@ class PlanStore {
     return cleaned.length > 40 ? cleaned.substring(0, 40) : cleaned;
   }
 
+  Future<Directory> _base() async =>
+      root ?? await getApplicationDocumentsDirectory();
+
   Future<Directory> _dir() async {
-    final app = root ?? await getApplicationDocumentsDirectory();
+    final app = await _base();
     final dir = Directory('${app.path}/plans');
     if (!await dir.exists()) await dir.create(recursive: true);
     return dir;
+  }
+
+  /// 导入来源/标签等辅助信息（`plans_meta.json`，与 plans/ 同级）。
+  /// 结构：`{"<户型名>": {"sourcePath": "...", "label": "..."}}`。
+  /// 文件缺失/损坏 → 空表（不能因为辅助信息挂了打不开户型列表）。
+  File? _metaFileCache;
+
+  Future<File> _metaFile() async =>
+      _metaFileCache ??= File('${(await _base()).path}/plans_meta.json');
+
+  Future<Map<String, Map<String, String>>> loadMeta() async {
+    try {
+      final f = await _metaFile();
+      if (!await f.exists()) return <String, Map<String, String>>{};
+      final raw = jsonDecode(await f.readAsString());
+      if (raw is! Map) return <String, Map<String, String>>{};
+      final out = <String, Map<String, String>>{};
+      raw.forEach((k, v) {
+        if (k is! String || v is! Map) return;
+        final m = <String, String>{};
+        v.forEach((kk, vv) {
+          if (kk is String && vv is String) m[kk] = vv;
+        });
+        out[k] = m;
+      });
+      return out;
+    } catch (_) {
+      return <String, Map<String, String>>{};
+    }
+  }
+
+  Future<void> saveMeta(Map<String, Map<String, String>> meta) async {
+    final f = await _metaFile();
+    await f.writeAsString(jsonEncode(meta));
   }
 
   /// 保存：同名且内容就是它自己 → 覆盖更新；同名但属于别的户型 → 加后缀。
@@ -153,6 +191,46 @@ class PlanStore {
     try {
       await File(e.path).delete();
     } catch (_) {}
+    // 顺手清掉 meta：否则以后新建同名户型会被当成「导入来的」回写到旧路径
+    try {
+      final meta = await loadMeta();
+      if (meta.remove(e.name) != null) await saveMeta(meta);
+    } catch (_) {}
+  }
+
+  /// 改户型名（v0.1.33）：清洗 → 写 plans/<新名>.json（JSON 内 name 同步）→
+  /// 删旧文件 → 迁移 plans_meta 里旧名键到新名键。
+  ///
+  /// 目标名已被**别的**户型占用 → 抛 [PlanRenameException]（调用方提示
+  /// 「已有同名户型」），绝不覆盖别人的文件。同名改（只清洗/大小写变化）允许。
+  Future<void> rename(PlanEntry e, String newName) async {
+    final raw = newName.trim();
+    if (raw.isEmpty) throw PlanRenameException('户型名不能为空');
+    final clean = sanitizeName(raw);
+    final dir = await _dir();
+    final src = File(e.path);
+    final target = File('${dir.path}/$clean.json');
+    final sameFile = target.path == src.path;
+    if (!sameFile && await target.exists()) {
+      throw PlanRenameException('已有同名户型');
+    }
+    final plan = FloorPlan.fromJsonString(await src.readAsString());
+    plan.name = clean;
+    await target.writeAsString(plan.toJsonString());
+    if (!sameFile) {
+      try {
+        await src.delete();
+      } catch (_) {}
+    }
+    // 辅助信息跟着改名（源路径/label 保留）
+    try {
+      final meta = await loadMeta();
+      if (meta.containsKey(e.name)) {
+        final moved = meta.remove(e.name)!;
+        meta[clean] = moved;
+        await saveMeta(meta);
+      }
+    } catch (_) {}
   }
 
   Future<FloorPlan?> load(String name) async {
@@ -166,6 +244,14 @@ class PlanStore {
     if (!await f.exists()) return null;
     return FloorPlan.fromJsonString(await f.readAsString());
   }
+}
+
+/// 改名失败（重名/空名）：message 直接给 UI 当 SnackBar 文案。
+class PlanRenameException implements Exception {
+  final String message;
+  const PlanRenameException(this.message);
+  @override
+  String toString() => message;
 }
 
 /// 一条已存户型（列表用）。

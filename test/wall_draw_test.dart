@@ -24,7 +24,9 @@ void main() {
 
   testWidgets('画墙：单指拖拽生成墙', (tester) async {
     final (container, _) = await pumpEditor(tester);
-    // 默认即「画墙」工具，画布中心单指拖 ~300px
+    // v0.1.33 起默认工具是「选择」，画墙前先显式点「画墙」
+    await tester.tap(find.text('画墙'));
+    await tester.pump();
     final cv = find.byKey(const ValueKey('cv'));
     await tester.drag(cv, const Offset(300, 0));
     await tester.pump();
@@ -65,7 +67,9 @@ void main() {
 
   testWidgets('双击墙 → 弹出台底尺寸面板', (tester) async {
     final (container, _) = await pumpEditor(tester);
-    // 先画一段墙（默认画墙工具）
+    // 先切换「画墙」工具再画一段墙（v0.1.33 起默认是选择）
+    await tester.tap(find.text('画墙'));
+    await tester.pump();
     final cv = find.byKey(const ValueKey('cv'));
     await tester.drag(cv, const Offset(300, 0));
     await tester.pump();
@@ -97,6 +101,8 @@ void main() {
   testWidgets('v0.1.18 选择工具：偏墙 0.3m 的点也能选中墙（容差回归）',
       (tester) async {
     final (container, _) = await pumpEditor(tester);
+    await tester.tap(find.text('画墙'));
+    await tester.pump();
     final cv = find.byKey(const ValueKey('cv'));
     await tester.drag(cv, const Offset(300, 0));
     await tester.pump();

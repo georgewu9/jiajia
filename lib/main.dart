@@ -369,7 +369,7 @@ class LandingPageState extends State<LandingPage> {
         .replace(p);
     if (context.mounted) {
       Navigator.push(context,
-          MaterialPageRoute(builder: (_) => const FloorplanEditorPage()));
+          MaterialPageRoute(builder: (_) => FloorplanEditorPage(store: widget.store)));
     }
   }
 
@@ -428,11 +428,26 @@ class LandingPageState extends State<LandingPage> {
   /// 不是合法户型 JSON → 统一提示导入失败。
   Future<void> _importPlan(BuildContext context) async {
     try {
-      final text = await PlanIo.pickJsonText();
-      if (text == null) return; // 用户取消
-      final plan = FloorPlan.fromJsonString(text);
-      plan.name = _uniqueImportName(plan.name);
+      final picked = await PlanIo.pickJsonMeta();
+      if (picked == null) return; // 用户取消
+      final plan = FloorPlan.fromJsonString(picked.text);
+      // v0.1.33：列表/SnackBar 显示「导入的文件名」（剥 .json 后缀），不是 JSON 里的旧 name
+      var fname = picked.fileName ?? plan.name;
+      if (fname.toLowerCase().endsWith('.json')) {
+        fname = fname.substring(0, fname.length - 5);
+      }
+      plan.name = _uniqueImportName(fname);
       await _store.save(plan);
+      // 记来源路径：编辑器保存时可回写原文件
+      try {
+        final meta = await _store.loadMeta();
+        meta[plan.name] = {
+          ...?meta[plan.name],
+          'sourcePath': picked.sourcePath,
+          'label': fname,
+        };
+        await _store.saveMeta(meta);
+      } catch (_) {}
       await _refresh();
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -441,6 +456,55 @@ class LandingPageState extends State<LandingPage> {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('导入失败：文件不是有效户型')));
+    }
+  }
+
+  /// 重命名已存户型（v0.1.33）：对话框可改「新建户型」这类默认名。
+  Future<void> _renamePlan(BuildContext context, PlanEntry e) async {
+    final controller = TextEditingController(text: e.name);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        backgroundColor: JiajiaColors.surface,
+        title: const Text('重命名户型',
+            style: TextStyle(color: JiajiaColors.text1, fontSize: 16)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 40,
+          style: const TextStyle(color: JiajiaColors.text1, fontSize: 14),
+          decoration: const InputDecoration(labelText: '户型名'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c),
+              child:
+                  const Text('取消', style: TextStyle(color: JiajiaColors.text2))),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, controller.text),
+            child: const Text('确定',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+    if (name == null || !context.mounted) return;
+    try {
+      await _store.rename(e, name);
+      await _refresh();
+      if (!context.mounted) return;
+      final clean = PlanStore.sanitizeName(name);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(clean == name.trim() ? '已重命名' : '已重命名为 $clean（已清洗非法字符）'),
+      ));
+    } on PlanRenameException catch (ex) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(ex.message)));
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('重命名失败')));
     }
   }
 
@@ -482,6 +546,13 @@ class LandingPageState extends State<LandingPage> {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          IconButton(
+                            key: ValueKey('rename_${e.path}'),
+                            tooltip: '重命名',
+                            icon: const Icon(Icons.edit,
+                                size: 18, color: JiajiaColors.accent),
+                            onPressed: () => _renamePlan(context, e),
+                          ),
                           IconButton(
                             key: ValueKey('export_${e.path}'),
                             tooltip: '导出到文件',
@@ -558,7 +629,8 @@ class LandingPageState extends State<LandingPage> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => const FloorplanEditorPage(),
+                            builder: (_) =>
+                                FloorplanEditorPage(store: widget.store),
                           ),
                         );
                       },
