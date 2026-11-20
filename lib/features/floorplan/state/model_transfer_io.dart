@@ -3,7 +3,8 @@
 // 复用现有的 file_picker（SAF「另存为」/「打开文件」），不新引依赖：
 //   · save：优先弹系统保存框；平台通道不可用（桌面预览/单测）→ 落到
 //     app 文档目录 exports/ 下并返回真实路径（不静默丢文件）；
-//   · pick：只筛 .obj/.json，读文本由调用方做。
+//   · pick：默认不筛扩展名（SAF 按 MIME 过滤，`.obj` 无标准 MIME 会被滤掉，
+//     用户放好的 .obj 在选择器里不显示）；仅全量导入按 .json 筛。读文本由调用方做。
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -61,12 +62,19 @@ class ModelFiles {
     }
   }
 
-  /// 选一个 .obj / .json 文件；用户取消 → null；平台通道异常向上抛。
-  static Future<PlatformFile?> pickModelFile({String dialogTitle = '导入模型'}) {
+  /// 选一个模型文件；用户取消 → null；平台通道异常向上抛。
+  ///
+  /// [jsonOnly]=true 只筛 `.json`（全量导入信封）；默认不筛扩展名：Android SAF
+  /// 按 MIME 过滤，`.obj` 无标准 MIME → 类型表只剩 application/json，用户放在
+  /// Download/ 的 .obj 在选择器里根本不显示。放开后由导入流程自身把关。
+  static Future<PlatformFile?> pickModelFile({
+    String dialogTitle = '导入模型',
+    bool jsonOnly = false,
+  }) {
     return FilePicker.pickFile(
       dialogTitle: dialogTitle,
-      type: FileType.custom,
-      allowedExtensions: const ['obj', 'json'],
+      type: jsonOnly ? FileType.custom : FileType.any,
+      allowedExtensions: jsonOnly ? const ['json'] : null,
     );
   }
 

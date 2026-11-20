@@ -831,7 +831,10 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     Navigator.pop(context); // 收一级菜单
     PlatformFile? file;
     try {
-      file = await ModelFiles.pickModelFile(dialogTitle: '导入用户模型全量');
+      file = await ModelFiles.pickModelFile(
+        dialogTitle: '导入用户模型全量',
+        jsonOnly: true,
+      );
     } catch (e) {
       _toast('打不开文件选择器：${_errText(e)}');
       return;
