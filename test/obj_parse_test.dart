@@ -43,9 +43,11 @@ f 5 7 8
     expect(d.hMm, 500);
   });
 
-  test('面数超限拒绝（>5000）', () {
+  test('入库闸：面数 >5000 拒绝（ObjParser.gate），parse 本身可收大文件', () {
+    // v0.1.44：5000 面闸只在「直接入库」的 gate 上；parse 放开到 20 万面，
+    // 好让 OBJ 导入流程先收进来再减面。
     expect(
-      () => ObjParser.parse(manyFaces(ObjParser.maxFaces + 1)),
+      () => ObjParser.gate(manyFaces(ObjParser.maxFaces + 1)),
       throwsA(
         isA<ObjParseException>().having(
           (e) => e.message,
@@ -55,20 +57,51 @@ f 5 7 8
       ),
     );
     // 恰好 5000 面仍可收（上限含等号）
-    final ok = ObjParser.parse(manyFaces(ObjParser.maxFaces));
+    final ok = ObjParser.gate(manyFaces(ObjParser.maxFaces));
     expect(ok.faceCount, ObjParser.maxFaces);
+    // parse 不再卡 5000：6000 面照样解析（由调用方决定减面还是拒收）
+    final big = ObjParser.parse(manyFaces(ObjParser.maxFaces + 1000));
+    expect(big.faceCount, ObjParser.maxFaces + 1000);
   });
 
-  test('体积超限拒绝（>300000 字符）', () {
+  test('入库闸：文本 >300000 字符拒绝（ObjParser.gate）', () {
     final big = 'v 0 0 0\n${'x' * (ObjParser.maxChars)}\n';
     expect(big.length, greaterThan(ObjParser.maxChars));
     expect(
-      () => ObjParser.parse(big),
+      () => ObjParser.gate(big),
       throwsA(
         isA<ObjParseException>().having(
           (e) => e.message,
           'message',
           contains('过大'),
+        ),
+      ),
+    );
+  });
+
+  test('解析硬上限：10MB 文本 / 20 万面（防误选视频等大文件）', () {
+    expect(ObjParser.maxParseChars, 10 * 1024 * 1024);
+    expect(ObjParser.maxParseFaces, 200000);
+    // 超过 10MB → 在切行之前就拒（不占内存也不慢）
+    final huge = 'v 0 0 0\n${'x' * ObjParser.maxParseChars}\n';
+    expect(
+      () => ObjParser.parse(huge),
+      throwsA(
+        isA<ObjParseException>().having(
+          (e) => e.message,
+          'message',
+          contains('文件过大'),
+        ),
+      ),
+    );
+    // 20 万面以上 → 解析中途拒
+    expect(
+      () => ObjParser.parse(manyFaces(ObjParser.maxParseFaces + 1)),
+      throwsA(
+        isA<ObjParseException>().having(
+          (e) => e.message,
+          'message',
+          contains('解析上限'),
         ),
       ),
     );

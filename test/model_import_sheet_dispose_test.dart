@@ -9,6 +9,7 @@
 //   · 整棵树都没了（root nav 也不 mounted）→ 跳过命名框，按默认值直接入库 + bootLog。
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -17,6 +18,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jiajia/diag/boot_log.dart';
 import 'package:jiajia/features/floorplan/domain/model_leaves.dart';
+import 'package:jiajia/features/floorplan/domain/obj_parse.dart';
 import 'package:jiajia/features/floorplan/presentation/floorplan_editor.dart';
 import 'package:jiajia/features/floorplan/state/lib_models_store.dart';
 
@@ -210,6 +212,114 @@ void main() {
     expect(bootLog.panelText(),
         contains('model-import(furniture): obj parse failed'));
   });
+
+  testWidgets('超闸 OBJ（600KB / 7938 面）→ 对话框显示压缩提示，入库减面版',
+      (tester) async {
+    final store = await pumpEditor(tester);
+    await openFurnitureSheet(tester);
+
+    picker.completer = Completer<PlatformFile?>();
+    await tester.tap(find.byKey(const ValueKey('import_obj_tile')));
+    await tester.pump();
+    Navigator.of(tester.element(find.text('导入模型…'))).pop();
+    await tester.pumpAndSettle();
+
+    // 8MB 真机的缩比仿真：几何 ~200KB + 40 万字符注释 = 600KB 文本、7938 面。
+    picker.completer!.complete(
+      _FakePlatformFile(
+        '庭院大树.obj',
+        Uint8List.fromList(utf8.encode(_bigWavyObj())),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 命名框必须明示「已自动压缩」（否则用户不知道入库的是减面版）
+    expect(find.byType(AlertDialog), findsOneWidget);
+    final note = find.byKey(const ValueKey('import_decimate_note'));
+    expect(note, findsOneWidget);
+    expect(
+      (tester.widget<Text>(find.descendant(of: note, matching: find.byType(Text))))
+          .data,
+      contains('已自动压缩'),
+    );
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('入库'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(store.models, hasLength(1));
+    final m = store.models.single;
+    // 入库的是压缩后的文本：过闸（≤300KB、≤5000 面）且轮廓算得出来
+    expect(m.objText.length, lessThanOrEqualTo(ObjParser.maxChars));
+    final back = ObjParser.parse(m.objText);
+    expect(back.faceCount, lessThanOrEqualTo(4800));
+    expect(m.sil, isNotNull);
+    // 尺寸仍取原始 bbox（2.0 × 2.0 × 0.4 m），减面不改尺寸
+    expect(m.wM, closeTo(2.0, 0.001));
+    expect(m.dM, closeTo(2.0, 0.001));
+    expect(m.hM, closeTo(0.4, 0.001));
+    // bootLog 一行：from -> to
+    expect(bootLog.panelText(),
+        contains('model-import(furniture): decimated 庭院大树.obj 7938 ->'));
+  });
+
+  testWidgets('减面后全退化（共线面）→ 不崩，rejected「压缩后模型退化」', (tester) async {
+    final store = await pumpEditor(tester);
+    await openFurnitureSheet(tester);
+
+    picker.completer = Completer<PlatformFile?>();
+    await tester.tap(find.byKey(const ValueKey('import_obj_tile')));
+    await tester.pump();
+    Navigator.of(tester.element(find.text('导入模型…'))).pop();
+    await tester.pumpAndSettle();
+
+    // 6000 个共线面（f 1 2 1）：面数超闸 → 进减面器 → 焊接后全零面积 → 0 面。
+    final b = StringBuffer('v 0 0 0\nv 10 0 0\n');
+    for (var i = 0; i < 6000; i++) {
+      b.writeln('f 1 2 1');
+    }
+    picker.completer!.complete(
+      _FakePlatformFile('坏线.obj', Uint8List.fromList(utf8.encode(b.toString()))),
+    );
+    await tester.pumpAndSettle();
+
+    // 不弹命名框（没东西可入库），直接 rejected；屏上有明确原因。
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.textContaining('压缩后模型退化'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    expect(store.models, isEmpty);
+    expect(bootLog.panelText(),
+        contains('model-import(furniture): decimated to 0 faces'));
+  });
+}
+
+/// 起伏网格 + 40 万字符注释：约 600KB / 7938 面，模拟真机 8.8MB 大模型的
+/// 「文本超 300KB 且面数超 5000」两重超闸形态（比真实文件小一号，测试要快）。
+String _bigWavyObj() {
+  const nx = 63, ny = 63; // 63×63 格 ×2 = 7938 面
+  const w = 2.0, d = 2.0, h = 0.4;
+  final b = StringBuffer('# ${'x' * 400000}\n');
+  final cols = nx + 1;
+  for (var j = 0; j <= ny; j++) {
+    for (var i = 0; i <= nx; i++) {
+      final x = w * i / nx;
+      final z = d * j / ny;
+      final y = h * (0.5 + 0.5 * math.sin(6.28318 * i / nx) * math.cos(6.28318 * j / ny));
+      b.writeln(
+          'v ${x.toStringAsFixed(5)} ${y.toStringAsFixed(5)} ${z.toStringAsFixed(5)}');
+    }
+  }
+  int vid(int i, int j) => j * cols + i + 1;
+  for (var j = 0; j < ny; j++) {
+    for (var i = 0; i < nx; i++) {
+      final a = vid(i, j), bb = vid(i + 1, j);
+      final c = vid(i + 1, j + 1), dd = vid(i, j + 1);
+      b.writeln('f $a $bb $c');
+      b.writeln('f $a $c $dd');
+    }
+  }
+  return b.toString();
 }
 
 /// file_picker 平台接口替身：pickFile 挂在一个 Completer 上，

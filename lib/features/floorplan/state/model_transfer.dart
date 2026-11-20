@@ -435,8 +435,11 @@ class SingleModelImporter {
 
 /// 5000 面 / 300KB 闸的直通口（不放宽）。单独包一层是为了让测试和 UI
 /// 都只说「过闸」，不重复拼 ObjParser 调用。
+///
+/// v0.1.44：闸从 `parse` 拆到 [ObjParser.gate] —— `parse` 现在能吃 10MB 大文件
+/// （OBJ 流程要先收进来再减面），只有「直接入库」（单件/全量 JSON）还走这道闸。
 class ObjParserGate {
   const ObjParserGate._();
 
-  static void check(String objText) => ObjParser.parse(objText);
+  static void check(String objText) => ObjParser.gate(objText);
 }

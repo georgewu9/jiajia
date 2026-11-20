@@ -15,6 +15,7 @@ import '../domain/model_assets.dart';
 import '../domain/model_items.dart';
 import '../domain/model_leaves.dart';
 import '../domain/model_silhouettes.dart';
+import '../domain/obj_decimate.dart';
 import '../domain/obj_parse.dart';
 import '../state/editor_doc.dart';
 import '../state/lib_models_store.dart';
@@ -4701,6 +4702,10 @@ class _LibModelDialog extends StatefulWidget {
   final List<String> subCats;
   final String? initialSubCat;
 
+  /// 可选补充说明（琥珀色，显示在面数行下面）。v0.1.44：超闸自动减面时
+  /// 传「面数较大，已自动压缩 100000 → 4780」；未减面为 null（旧观感不变）。
+  final String? note;
+
   const _LibModelDialog({
     required this.defaultName,
     required this.wMm,
@@ -4711,6 +4716,7 @@ class _LibModelDialog extends StatefulWidget {
     required this.initialCat,
     this.subCats = const [],
     this.initialSubCat,
+    this.note,
   });
 
   @override
@@ -4829,6 +4835,18 @@ class _LibModelDialogState extends State<_LibModelDialog> {
               '${widget.faceCount} 个面 · 尺寸取自 OBJ 包围盒（可改）',
               style: const TextStyle(color: JiajiaColors.text3, fontSize: 10),
             ),
+            if (widget.note != null)
+              Padding(
+                key: const ValueKey('import_decimate_note'),
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  widget.note!,
+                  style: const TextStyle(
+                    color: JiajiaColors.accent,
+                    fontSize: 10,
+                  ),
+                ),
+              ),
             const SizedBox(height: 8),
             if (widget.cats.length > 1)
               Wrap(
@@ -4909,6 +4927,9 @@ String _shortErr(Object e) {
   final s = e.toString();
   return s.length > 80 ? '${s.substring(0, 80)}…' : s;
 }
+
+/// 文本体积（KB，向上取整）——超限文案用，与 300KB 闸同一口径。
+int _kbOf(String s) => (s.length / 1024).ceil();
 
 void _snackOf(BuildContext context, String m) {
   final messenger = ScaffoldMessenger.maybeOf(context);
@@ -5064,6 +5085,51 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
       message: 'OBJ 解析失败：${_shortErr(e)}',
     );
   }
+
+  // 超入库闸（>5000 面 或 >300KB）→ 顶点聚类自动减面（v0.1.44）。
+  // 用户要的是「太大你可以压缩一下」，不是放宽闸：入库的永远是压缩后的文本。
+  // 压缩后再按**同一道闸**复验（面数 + 体积 + 能被再解析），过不了就明确拒。
+  var decFrom = 0;
+  var decTo = 0;
+  if (data.faceCount > ObjParser.maxFaces || text.length > ObjParser.maxChars) {
+    DecimatedObj dec;
+    try {
+      dec = ObjDecimate.tryDecimate(data);
+    } catch (e) {
+      bootLog.error('model-import($tag): decimate failed: ${_shortErr(e)}');
+      return _ModelImportOutcome(
+        ModelImportStatus.rejected,
+        message: '自动压缩失败：${_shortErr(e)}',
+      );
+    }
+    if (dec.toFaces == 0) {
+      bootLog.error('model-import($tag): decimated to 0 faces (${file.name})');
+      return _ModelImportOutcome(
+        ModelImportStatus.rejected,
+        message: '压缩后模型退化（0 面），请先在电脑上减面',
+      );
+    }
+    try {
+      ObjParser.gate(dec.objText);
+    } on ObjParseException catch (e) {
+      bootLog.error(
+        'model-import($tag): decimated still over gate: ${e.message}',
+      );
+      return _ModelImportOutcome(
+        ModelImportStatus.rejected,
+        message:
+            '压缩后仍超限（${dec.toFaces} 面/${_kbOf(dec.objText)} KB），请先在电脑上减面',
+      );
+    }
+    bootLog.line(
+      'model-import($tag): decimated ${file.name} '
+      '${dec.fromFaces} -> ${dec.toFaces} faces',
+    );
+    decFrom = dec.fromFaces;
+    decTo = dec.toFaces;
+    text = dec.objText;
+    data = dec.data;
+  }
   final baseName = _baseNameOf(file.name);
   if (!nav.mounted) {
     // 连 root nav 都没了（页面已退出 / 整棵树被销毁）：不弹对话框，按默认值入库。
@@ -5091,6 +5157,8 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
         initialCat: cat,
         subCats: cat == ModelLeaves.furniture ? FurnitureTabs.cats : const [],
         initialSubCat: subCat,
+        // 减面过的模型在对话框里明示（未减面 → null，旧观感不变）
+        note: decTo > 0 ? '面数较大，已自动压缩 $decFrom → $decTo' : null,
       ),
       barrierDismissible: true,
       // 挂 root nav（不是 sheet context）：sheet 在选择器期间被回收也能弹出来。
@@ -5116,7 +5184,9 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
     hM: draft.hMm / 1000,
     color: ModelLeaves.defaultColor(id),
     objText: text,
-    // 闸已过（上面 ObjParser.parse）→ 同法现算 2D 轮廓入库，2D 立刻有轮廓；
+    // 闸已过（上面 ObjParser.gate / 减面后复验）→ 同法现算 2D 轮廓入库，
+    // 2D 立刻有轮廓；v0.1.44 起 text 是**减面后**的文本（未超闸时就是原文），
+    // 与 3D 吃的是同一份几何，剪影与显示一致。
     // 算不出（退化几何）→ null，画布回落 RRect，不阻断导入。
     sil: ModelSilhouette.tryFromObjText(text),
   );
