@@ -4327,18 +4327,26 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
 
   Future<void> _importInto() async {
     if (_busy) return;
+    // 锚到 root Navigator：系统文件选择器打开期间 sheet 可能被关掉
+    // （返回手势 / MIUI 后台回收后重建 UI），sheet 自己的 context 随之 dispose；
+    // root nav 挂在 MaterialApp 级，只要编辑器页面还在就仍可用。
+    final nav = Navigator.of(context, rootNavigator: true);
     PlatformFile? file;
     try {
       file = await ModelFiles.pickModelFile(dialogTitle: '导入模型');
     } catch (e) {
-      // 平台通道不可用（widget 测试/桌面预览）→ 提示，不崩
+      // 平台通道不可用（widget 测试/桌面预览）→ 记日志 + 提示，不崩
+      bootLog.error('model-import(furniture): picker failed: ${_errText(e)}');
       _snack('打不开文件选择器：${_errText(e)}');
       return;
     }
-    if (file == null) return; // 用户取消
-    if (!mounted) return;
+    if (file == null) {
+      // 用户取消（无异常）：保持静默，只留日志（sheet 可能已不在，别读 context）
+      bootLog.line('model-import(furniture): picker null (user cancel)');
+      return;
+    }
     final out = await _runModelImportFlow(
-      context: context,
+      nav: nav,
       store: widget.libStore,
       cat: ModelLeaves.furniture,
       subCat: _cat,
@@ -4925,9 +4933,16 @@ class _ModelImportOutcome {
 /// 导入一个已选文件（.obj 或单件 JSON）：
 ///   1) 读文本；JSON → 解析 + 闸 + id 去重；OBJ → 闸 + 命名/尺寸对话框；
 ///   2) 归属以当前菜单为准（cat/subCat 由调用方给），文件里的 cat 不覆盖菜单。
-/// 返回 null = 用户取消（不提示）。
+/// 返回 null = 用户取消（关掉命名对话框时已给提示）。
+///
+/// [nav] 必须是 **root** NavigatorState，且由调用方在打开文件选择器**之前**捕获：
+/// 系统文件选择器期间 sheet 可能被关掉（返回手势 / MIUI 后台回收后 UI 重建），
+/// sheet 自己的 context 随之 dispose，但 root nav 只要编辑器页面还在就仍然 mounted。
+/// 对话框挂 root nav，结果才不会静默丢在已死的 sheet 上。
+/// 极端情况 nav 也不 mounted（已退出编辑器/整棵树销毁）→ 跳过命名对话框，
+/// 按默认值直接入库，至少模型不丢。
 Future<_ModelImportOutcome?> _runModelImportFlow({
-  required BuildContext context,
+  required NavigatorState nav,
   required LibModelsStore store,
   required String cat,
   String? subCat,
@@ -4998,23 +5013,49 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
       message: 'OBJ 解析失败：${_shortErr(e)}',
     );
   }
-  if (!context.mounted) return null;
-  final draft = await showDialog<_LibDraft>(
-    context: context,
-    builder: (_) => _LibModelDialog(
-      defaultName: _baseNameOf(file.name),
-      wMm: data.wMm,
-      dMm: data.dMm,
-      hMm: data.hMm,
-      faceCount: data.faceCount,
-      cats: [cat],
-      initialCat: cat,
-      subCats: cat == ModelLeaves.furniture ? FurnitureTabs.cats : const [],
-      initialSubCat: subCat,
+  final baseName = _baseNameOf(file.name);
+  if (!nav.mounted) {
+    // 连 root nav 都没了（页面已退出 / 整棵树被销毁）：不弹对话框，按默认值入库。
+    return _autoImportObj(
+      store: store,
+      cat: cat,
+      subCat: subCat,
+      text: text,
+      data: data,
+      baseName: baseName,
+    );
+  }
+  final draft = await nav.push<_LibDraft>(
+    DialogRoute<_LibDraft>(
+      context: nav.context,
+      builder: (_) => _LibModelDialog(
+        defaultName: baseName,
+        wMm: data.wMm,
+        dMm: data.dMm,
+        hMm: data.hMm,
+        faceCount: data.faceCount,
+        cats: [cat],
+        initialCat: cat,
+        subCats: cat == ModelLeaves.furniture ? FurnitureTabs.cats : const [],
+        initialSubCat: subCat,
+      ),
+      barrierDismissible: true,
+      // 挂 root nav（不是 sheet context）：sheet 在选择器期间被回收也能弹出来。
+      barrierLabel: MaterialLocalizations.of(nav.context).modalBarrierDismissLabel,
+      barrierColor: Colors.black54,
+      useSafeArea: true,
     ),
   );
-  if (draft == null) return null;
-  final id = LibModel.newImportId(_baseNameOf(file.name));
+  if (draft == null) {
+    // 用户关掉命名对话框：以前静默 return，现在给一句可见提示（sheet 若已关就只记日志）。
+    if (nav.mounted) {
+      _snackOf(nav.context, '已取消导入');
+    } else {
+      bootLog.line('model-import: naming dialog dismissed, nav gone (cancel)');
+    }
+    return null;
+  }
+  final id = LibModel.newImportId(baseName);
   final model = LibModel(
     id: id,
     name: draft.name,
@@ -5037,6 +5078,51 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
     );
     return _ModelImportOutcome(ModelImportStatus.added, model: saved);
   } catch (e) {
+    return _ModelImportOutcome(
+      ModelImportStatus.rejected,
+      message: '入库失败：${_shortErr(e)}',
+    );
+  }
+}
+
+/// 兜底自动导入（root nav 也死了的极端情况）：
+/// 跳过命名对话框，name=文件基名、cat/subCat=菜单传入值、尺寸=OBJ bbox。
+/// 入库成功后写一行 bootLog 留痕（复用启动日志通道，不新造错误页）。
+Future<_ModelImportOutcome> _autoImportObj({
+  required LibModelsStore store,
+  required String cat,
+  String? subCat,
+  required String text,
+  required ObjData data,
+  required String baseName,
+}) async {
+  final id = LibModel.newImportId(baseName);
+  final model = LibModel(
+    id: id,
+    name: baseName,
+    cat: cat,
+    subCat: subCat,
+    wM: data.wMm / 1000,
+    dM: data.dMm / 1000,
+    hM: data.hMm / 1000,
+    color: ModelLeaves.defaultColor(id),
+    objText: text,
+    sil: ModelSilhouette.tryFromObjText(text),
+  );
+  try {
+    final list = await store.add(model);
+    final saved = list.firstWhere(
+      (m) => m.id == model.id,
+      orElse: () => model,
+    );
+    bootLog.line(
+      'model-import auto (nav gone): name=${saved.name} cat=$cat '
+      'subCat=${subCat ?? '-'} mm=${data.wMm}x${data.dMm}x${data.hMm} '
+      'id=${saved.id} sil=${saved.sil != null}',
+    );
+    return _ModelImportOutcome(ModelImportStatus.added, model: saved);
+  } catch (e) {
+    bootLog.error('model-import auto failed ($baseName): ${_shortErr(e)}');
     return _ModelImportOutcome(
       ModelImportStatus.rejected,
       message: '入库失败：${_shortErr(e)}',
@@ -5140,19 +5226,24 @@ class _ModelMenuSheetState extends State<_ModelMenuSheet> {
 
   Future<void> _import() async {
     if (_busy) return;
+    // 同家具 sheet：先锚 root nav，再开系统文件选择器（sheet 可能在选择器期间被回收）。
+    final nav = Navigator.of(context, rootNavigator: true);
     PlatformFile? file;
     try {
       file = await ModelFiles.pickModelFile(dialogTitle: '导入模型');
     } catch (e) {
+      bootLog.error('model-import(${widget.cat}): picker failed: ${_shortErr(e)}');
       if (!mounted) return;
       _snackOf(context, '打不开文件选择器：${_shortErr(e)}');
       return;
     }
-    if (file == null) return;
-    if (!mounted) return;
-    setState(() => _busy = true);
+    if (file == null) {
+      bootLog.line('model-import(${widget.cat}): picker null (user cancel)');
+      return;
+    }
+    if (mounted) setState(() => _busy = true);
     final out = await _runModelImportFlow(
-      context: context,
+      nav: nav,
       store: widget.libStore,
       cat: widget.cat,
       subCat: widget.subCat,
@@ -5359,19 +5450,24 @@ class _UserAssetsSheetState extends State<_UserAssetsSheet> {
 
   Future<void> _import() async {
     if (_busy) return;
+    // 同家具 sheet：先锚 root nav，再开系统文件选择器（sheet 可能在选择器期间被回收）。
+    final nav = Navigator.of(context, rootNavigator: true);
     PlatformFile? file;
     try {
       file = await ModelFiles.pickModelFile(dialogTitle: '导入用户素材');
     } catch (e) {
+      bootLog.error('model-import(userAssets): picker failed: ${_shortErr(e)}');
       if (!mounted) return;
       _snackOf(context, '打不开文件选择器：${_shortErr(e)}');
       return;
     }
-    if (file == null) return;
-    if (!mounted) return;
-    setState(() => _busy = true);
+    if (file == null) {
+      bootLog.line('model-import(userAssets): picker null (user cancel)');
+      return;
+    }
+    if (mounted) setState(() => _busy = true);
     final out = await _runModelImportFlow(
-      context: context,
+      nav: nav,
       store: widget.libStore,
       cat: ModelLeaves.userAssets,
       file: file,
