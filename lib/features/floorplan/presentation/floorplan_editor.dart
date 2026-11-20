@@ -11,6 +11,7 @@ import '../../../app/theme.dart';
 import '../../../diag/boot_log.dart' show bootLog;
 import '../domain/floor_plan.dart';
 import '../domain/furniture_tabs.dart';
+import '../domain/import_unit.dart';
 import '../domain/model_assets.dart';
 import '../domain/model_items.dart';
 import '../domain/model_leaves.dart';
@@ -4675,6 +4676,10 @@ class _LibDraft {
   final int dMm;
   final int hMm;
 
+  /// 原文件单位换算系数（v0.1.45）：入库 objText 的 `v` 坐标要 ×这个值，
+  /// wMm/dMm/hMm 已是换算后的值。米（或 JSON 等非 OBJ 路径）= 1.0。
+  final double unitScale;
+
   const _LibDraft({
     required this.name,
     required this.cat,
@@ -4682,6 +4687,7 @@ class _LibDraft {
     required this.wMm,
     required this.dMm,
     required this.hMm,
+    this.unitScale = 1.0,
   });
 }
 
@@ -4706,6 +4712,14 @@ class _LibModelDialog extends StatefulWidget {
   /// 传「面数较大，已自动压缩 100000 → 4780」；未减面为 null（旧观感不变）。
   final String? note;
 
+  /// 原文件单位 chips（v0.1.45）：OBJ 导入路径传 [ImportUnits.options]，
+  /// JSON/其它路径传空 → 整行不显示（旧观感不变）。
+  final List<UnitOption> units;
+
+  /// 预选单位（autoPick 的结果；null → chips 第一项 = 米）。
+  /// [wMm]/[dMm]/[hMm] 是**原始米约定**的跨度，切单位时按它重填三栏。
+  final UnitOption? initialUnit;
+
   const _LibModelDialog({
     required this.defaultName,
     required this.wMm,
@@ -4717,6 +4731,8 @@ class _LibModelDialog extends StatefulWidget {
     this.subCats = const [],
     this.initialSubCat,
     this.note,
+    this.units = const [],
+    this.initialUnit,
   });
 
   @override
@@ -4731,30 +4747,49 @@ class _LibModelDialogState extends State<_LibModelDialog> {
   late String _cat;
   String? _subCat;
 
+  /// 当前原文件单位（[widget.units] 为空时无意义，恒为米/1.0）。
+  late UnitOption _unit;
+
   @override
   void initState() {
     super.initState();
+    _unit = widget.initialUnit ??
+        (widget.units.isEmpty ? ImportUnits.meters : widget.units.first);
     _nameC = TextEditingController(text: widget.defaultName);
-    _wC = TextEditingController(text: '${widget.wMm}');
-    _dC = TextEditingController(text: '${widget.dMm}');
-    _hC = TextEditingController(text: '${widget.hMm}');
+    _wC = TextEditingController(text: '${ImportUnits.toMm(widget.wMm, _unit.scale)}');
+    _dC = TextEditingController(text: '${ImportUnits.toMm(widget.dMm, _unit.scale)}');
+    _hC = TextEditingController(text: '${ImportUnits.toMm(widget.hMm, _unit.scale)}');
     _cat = widget.initialCat;
     _subCat = widget.initialSubCat ??
         (widget.subCats.isEmpty ? null : widget.subCats.first);
+    // 边输边校验：红字行与「入库」禁用态要跟着输入实时变（v0.1.45）。
+    for (final c in [_nameC, _wC, _dC, _hC]) {
+      c.addListener(_onEdit);
+    }
+  }
+
+  void _onEdit() {
+    if (!mounted) return;
+    setState(() {});
   }
 
   @override
   void dispose() {
     for (final c in [_nameC, _wC, _dC, _hC]) {
-      c.dispose();
+      c
+        ..removeListener(_onEdit)
+        ..dispose();
     }
     super.dispose();
   }
 
-  void _msg(String m) {
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    messenger?.hideCurrentSnackBar();
-    messenger?.showSnackBar(SnackBar(content: Text(m)));
+  /// 切单位：三栏按**原始** bbox 重填（用户可再手改）。
+  void _selectUnit(UnitOption u) {
+    _unit = u;
+    _wC.text = '${ImportUnits.toMm(widget.wMm, u.scale)}';
+    _dC.text = '${ImportUnits.toMm(widget.dMm, u.scale)}';
+    _hC.text = '${ImportUnits.toMm(widget.hMm, u.scale)}';
+    setState(() {});
   }
 
   int? _mm(TextEditingController c) {
@@ -4763,15 +4798,26 @@ class _LibModelDialogState extends State<_LibModelDialog> {
     return v;
   }
 
+  /// 框内校验：返回所有不合法项（空列表 = 可以入库）。
+  /// v0.1.45 起不再走底部 snack（4 秒就没了，用户没看见就空白关框），
+  /// 改为对话框内常驻红字 + 「入库」置灰。
+  List<String> get _errors {
+    final errs = <String>[];
+    if (_nameC.text.trim().isEmpty) errs.add('名称不能为空');
+    const dims = [('W', 0), ('D', 1), ('H', 2)];
+    final cs = [_wC, _dC, _hC];
+    for (final (label, i) in dims) {
+      if (_mm(cs[i]) == null) errs.add('$label 需在 1~50000mm，或改单位');
+    }
+    return errs;
+  }
+
   void _ok() {
     final name = _nameC.text.trim();
-    if (name.isEmpty) {
-      _msg('模型名称不能为空');
-      return;
-    }
     final w = _mm(_wC), d = _mm(_dC), h = _mm(_hC);
-    if (w == null || d == null || h == null) {
-      _msg('尺寸需 1~50000 的整数（单位 mm）');
+    if (name.isEmpty || w == null || d == null || h == null) {
+      // 按钮本就置灰，这里只是兜底：刷新一下红字行，绝不静默。
+      setState(() {});
       return;
     }
     Navigator.pop(
@@ -4783,6 +4829,7 @@ class _LibModelDialogState extends State<_LibModelDialog> {
         wMm: w,
         dMm: d,
         hMm: h,
+        unitScale: _unit.scale,
       ),
     );
   }
@@ -4809,6 +4856,8 @@ class _LibModelDialogState extends State<_LibModelDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final errors = _errors;
+    final canSubmit = errors.isEmpty;
     return AlertDialog(
       backgroundColor: JiajiaColors.surface,
       title: const Text(
@@ -4832,7 +4881,9 @@ class _LibModelDialogState extends State<_LibModelDialog> {
             ),
             const SizedBox(height: 2),
             Text(
-              '${widget.faceCount} 个面 · 尺寸取自 OBJ 包围盒（可改）',
+              widget.units.isEmpty
+                  ? '${widget.faceCount} 个面 · 尺寸取自 OBJ 包围盒（可改）'
+                  : '${widget.faceCount} 个面 · 尺寸 = 包围盒 × 原文件单位（可改）',
               style: const TextStyle(color: JiajiaColors.text3, fontSize: 10),
             ),
             if (widget.note != null)
@@ -4882,6 +4933,28 @@ class _LibModelDialogState extends State<_LibModelDialog> {
               ),
             ],
             const SizedBox(height: 12),
+            // 原文件单位（v0.1.45）：只有 OBJ 导入路径传 units；JSON 路径空 → 不显示。
+            if (widget.units.isNotEmpty) ...[
+              Text(
+                '原文件单位',
+                style: const TextStyle(color: JiajiaColors.text3, fontSize: 10),
+              ),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final u in widget.units)
+                    ChoiceChip(
+                      key: ValueKey('import_unit_${u.label}'),
+                      label: Text(u.label, style: const TextStyle(fontSize: 11)),
+                      selected: _unit.scale == u.scale,
+                      onSelected: (_) => _selectUnit(u),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
             Row(
               children: [
                 _mmField('W mm', _wC),
@@ -4889,6 +4962,25 @@ class _LibModelDialogState extends State<_LibModelDialog> {
                 _mmField('H mm', _hC),
               ],
             ),
+            // 框内校验行（尺寸栏正下方，常驻直到改对为止）。
+            if (errors.isNotEmpty)
+              Padding(
+                key: const ValueKey('import_unit_error'),
+                padding: const EdgeInsets.only(top: 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final e in errors)
+                      Text(
+                        e,
+                        style: const TextStyle(
+                          color: JiajiaColors.err,
+                          fontSize: 11,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),
@@ -4898,7 +4990,9 @@ class _LibModelDialogState extends State<_LibModelDialog> {
           child: const Text('取消', style: TextStyle(color: JiajiaColors.text2)),
         ),
         FilledButton(
-          onPressed: _ok,
+          // 任一维度/名称非法 → 置灰（onPressed:null 即 M3 禁用态），
+          // 用户永远看得见为什么不能入库（v0.1.45 取代 4 秒 snack）。
+          onPressed: canSubmit ? _ok : null,
           child: const Text(
             '入库',
             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
@@ -5159,6 +5253,12 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
         initialSubCat: subCat,
         // 减面过的模型在对话框里明示（未减面 → null，旧观感不变）
         note: decTo > 0 ? '面数较大，已自动压缩 $decFrom → $decTo' : null,
+        // 原文件单位（v0.1.45）：OBJ 路径才有。预检规则见 ImportUnits.autoPick —
+        // 三边都在 50000 内 → 米；超了就在 dm/cm/mm 里挑**最大**的能过闸单位
+        // （japaneseMaple 790330cm 文件 → 0.1 档 79033 仍超 → 落到 cm）；
+        // 一个都救不回来 → null（默认米，框内红字 + 「入库」置灰）。
+        units: ImportUnits.options,
+        initialUnit: ImportUnits.autoPick(data.wMm, data.dMm, data.hMm),
       ),
       barrierDismissible: true,
       // 挂 root nav（不是 sheet context）：sheet 在选择器期间被回收也能弹出来。
@@ -5174,6 +5274,31 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
     return null;
   }
   final id = LibModel.newImportId(baseName);
+  // 原文件单位换算（v0.1.45）：draft.unitScale != 1（cm/dm/mm 文件）→ 把**入库
+  // 那份文本**（可能已减面）的 v 坐标整体 ×s。顺序固定为
+  // 减面 → 单位换算 → 闸 → 剪影，保证 3D 和 2D 吃的是同一份几何：
+  //   · 减面按原始 bbox 定格宽，先减面再缩放不损失精度；
+  //   · 换算只改 v 行且 s ≤ 1，文本只会更短，仍照样过一次 gate 兜底；
+  //   · 剪影必须用换算后的文本算，否则 2D 轮廓与 3D 尺寸对不上。
+  var objText = text;
+  if (draft.unitScale != 1.0) {
+    objText = ObjUnit.scaleVertexText(text, draft.unitScale);
+    try {
+      ObjParser.gate(objText);
+    } on ObjParseException catch (e) {
+      bootLog.error(
+        'model-import($tag): scaled still over gate: ${e.message}',
+      );
+      return _ModelImportOutcome(
+        ModelImportStatus.rejected,
+        message: '换算后仍超限（${_kbOf(objText)} KB），请先在电脑上减面',
+      );
+    }
+    bootLog.line(
+      'model-import($tag): scaled ${file.name} by ${draft.unitScale} '
+      '(unit=${ImportUnits.labelOf(draft.unitScale)})',
+    );
+  }
   final model = LibModel(
     id: id,
     name: draft.name,
@@ -5183,12 +5308,11 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
     dM: draft.dMm / 1000,
     hM: draft.hMm / 1000,
     color: ModelLeaves.defaultColor(id),
-    objText: text,
-    // 闸已过（上面 ObjParser.gate / 减面后复验）→ 同法现算 2D 轮廓入库，
-    // 2D 立刻有轮廓；v0.1.44 起 text 是**减面后**的文本（未超闸时就是原文），
-    // 与 3D 吃的是同一份几何，剪影与显示一致。
+    objText: objText,
+    // 闸已过（上面 ObjParser.gate / 减面后复验 / 换算后复验）→ 同法现算 2D
+    // 轮廓入库，2D 立刻有轮廓；v0.1.45 起文本是**换算后**的几何，与 3D 一致。
     // 算不出（退化几何）→ null，画布回落 RRect，不阻断导入。
-    sil: ModelSilhouette.tryFromObjText(text),
+    sil: ModelSilhouette.tryFromObjText(objText),
   );
   try {
     final list = await store.add(model);
@@ -5198,7 +5322,8 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
     );
     bootLog.line(
       'model-import($tag): added name=${saved.name} id=${saved.id} '
-      'mm=${data.wMm}x${data.dMm}x${data.hMm} sil=${saved.sil != null}',
+      'mm=${draft.wMm}x${draft.dMm}x${draft.hMm} '
+      '(raw=${data.wMm}x${data.dMm}x${data.hMm}) sil=${saved.sil != null}',
     );
     return _ModelImportOutcome(ModelImportStatus.added, model: saved);
   } catch (e) {
