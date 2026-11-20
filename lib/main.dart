@@ -13,6 +13,10 @@ import 'features/floorplan/state/editor_doc.dart';
 import 'features/floorplan/state/plan_io.dart';
 import 'features/viewer3d/viewer3d_page.dart';
 
+/// 当前包版本（与 pubspec 同步发布；启动日志首行写它，
+/// 用户截图日志即可确认装的是哪个包 —— 不用翻设置页）。
+const String kAppVersion = '1.0.43';
+
 /// jiajia：画户型 → 摆家具 → 3D 浏览。
 void main() {
   // 外部原始探针：/sdcard/Android/data/com.georgewu.jiajia/files/jiajia_diag.txt
@@ -21,6 +25,8 @@ void main() {
   bootLog.attachRaw(
     File('/sdcard/Android/data/com.georgewu.jiajia/files/jiajia_diag.txt'),
   );
+  // 首行必须是版本：真机反复「装了没装上」说不清，日志第一行就能对版本。
+  bootLog.line('boot $kAppVersion');
   bootLog.line('main-start');
   final panel = ValueNotifier<String?>(null);
   // 根级护栏：树里任何位置（含 JiajiaApp.build / theme / MaterialApp）的

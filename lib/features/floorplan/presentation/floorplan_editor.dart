@@ -4337,12 +4337,13 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
     } catch (e) {
       // 平台通道不可用（widget 测试/桌面预览）→ 记日志 + 提示，不崩
       bootLog.error('model-import(furniture): picker failed: ${_errText(e)}');
-      _snack('打不开文件选择器：${_errText(e)}');
+      _rootSnack(nav, '打不开文件选择器：${_errText(e)}');
       return;
     }
     if (file == null) {
-      // 用户取消（无异常）：保持静默，只留日志（sheet 可能已不在，别读 context）
-      bootLog.line('model-import(furniture): picker null (user cancel)');
+      // 用户取消 或 平台通道把结果丢了：两者屏上都必须可见（旧实现只留一行日志）。
+      bootLog.line('model-import(furniture): picker null (user cancel / lost)');
+      _rootSnack(nav, '未选择文件（已取消）');
       return;
     }
     final out = await _runModelImportFlow(
@@ -4351,19 +4352,15 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
       cat: ModelLeaves.furniture,
       subCat: _cat,
       file: file,
+      menu: 'furniture',
     );
-    if (out == null || !mounted) return;
-    switch (out.status) {
-      case ModelImportStatus.added:
-        await _reloadLibs();
-        if (!mounted) return;
-        setState(() => _cat = out.model?.subCat ?? _cat);
-        _snack('已导入「${out.model?.name ?? ''}」');
-      case ModelImportStatus.duplicate:
-        _snack('已在库中：${out.model?.name ?? ''}（id 重复，已跳过）');
-      case ModelImportStatus.rejected:
-        _snack(out.message ?? '导入失败');
-    }
+    // 结果提示走 root messenger：sheet 在选择器期间被销毁也照样可见。
+    if (out != null) _rootSnack(nav, _importResultText(out));
+    // 库刷新仍留在 sheet 侧：sheet 没了就跳过刷新，但上面的提示已经发出。
+    if (out == null || out.status != ModelImportStatus.added || !mounted) return;
+    await _reloadLibs();
+    if (!mounted) return;
+    setState(() => _cat = out.model?.subCat ?? _cat);
   }
 
   // ---------------- 模型库导出 / 导入（P3） ----------------
@@ -4920,6 +4917,34 @@ void _snackOf(BuildContext context, String m) {
   messenger.showSnackBar(SnackBar(content: Text(m)));
 }
 
+/// 导入流程的**唯一**屏上反馈通道：root ScaffoldMessenger（MaterialApp 级）。
+///
+/// 旧实现走 sheet 自己的 context：系统文件选择器期间 sheet 被关掉（返回手势 /
+/// MIUI 回收后 UI 重建）→ sheet 的 messenger 随 State dispose，提示全丢，
+/// 用户看到的仍是「选完文件什么都没发生」。root messenger 只要编辑器页面还在
+/// 就有效，sheet 生死无关。
+///
+/// [nav] 已销毁（连页面都没了）→ 屏幕无处可画，静默跳过；结果仍有 bootLog 行。
+void _rootSnack(NavigatorState nav, String m) {
+  if (!nav.mounted) return;
+  final messenger = ScaffoldMessenger.maybeOf(nav.context);
+  if (messenger == null) return;
+  messenger.hideCurrentSnackBar();
+  messenger.showSnackBar(SnackBar(content: Text(m)));
+}
+
+/// 导入结果 → 屏上文案（三处调用点共用；null = 用户已取消，流程内已提示过）。
+String _importResultText(_ModelImportOutcome out) {
+  switch (out.status) {
+    case ModelImportStatus.added:
+      return '已导入「${out.model?.name ?? ''}」';
+    case ModelImportStatus.duplicate:
+      return '已在库中：${out.model?.name ?? ''}（id 重复，已跳过）';
+    case ModelImportStatus.rejected:
+      return out.message ?? '导入失败';
+  }
+}
+
 enum ModelImportStatus { added, duplicate, rejected }
 
 class _ModelImportOutcome {
@@ -4947,11 +4972,20 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
   required String cat,
   String? subCat,
   required PlatformFile file,
+  /// bootLog 前缀里的菜单名（furniture / 用户素材 …）；缺省用 cat。
+  String menu = '',
 }) async {
+  final tag = menu.isEmpty ? cat : menu;
+  // 选完文件立刻上屏一条：「选择器到底有没有返回文件」一眼可判 ——
+  // 有这句 = 卡在解析/入库；没这句 = 卡在选文件之前（平台通道/ROM）。
+  _rootSnack(nav, '正在导入「${file.name}」…');
+  bootLog.line('model-import($tag): picked ${file.name}');
+
   String text;
   try {
     text = await ModelFiles.readText(file);
   } catch (e) {
+    bootLog.error('model-import($tag): read failed: ${_shortErr(e)}');
     return _ModelImportOutcome(
       ModelImportStatus.rejected,
       message: '读取文件失败：${_shortErr(e)}',
@@ -4964,11 +4998,13 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
     try {
       item = ModelTransferCodec.decodeSingle(text);
     } on FormatException catch (e) {
+      bootLog.error('model-import($tag): json decode failed: ${e.message}');
       return _ModelImportOutcome(
         ModelImportStatus.rejected,
         message: e.message,
       );
     } catch (e) {
+      bootLog.error('model-import($tag): json decode failed: ${_shortErr(e)}');
       return _ModelImportOutcome(
         ModelImportStatus.rejected,
         message: '单模型 JSON 解析失败：${_shortErr(e)}',
@@ -4979,21 +5015,34 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
         store,
         item.retarget(cat: cat, subCat: subCat),
       );
-      return switch (r.status) {
-        SingleImportStatus.added => _ModelImportOutcome(
+      switch (r.status) {
+        case SingleImportStatus.added:
+          bootLog.line(
+            'model-import($tag): added name=${r.model?.name ?? ''} '
+            'id=${r.model?.id ?? ''}',
+          );
+          return _ModelImportOutcome(
             ModelImportStatus.added,
             model: r.model,
-          ),
-        SingleImportStatus.duplicate => _ModelImportOutcome(
+          );
+        case SingleImportStatus.duplicate:
+          bootLog.line(
+            'model-import($tag): duplicate name=${r.model?.name ?? ''} '
+            'id=${r.model?.id ?? ''}',
+          );
+          return _ModelImportOutcome(
             ModelImportStatus.duplicate,
             model: r.model,
-          ),
-        SingleImportStatus.rejected => _ModelImportOutcome(
+          );
+        case SingleImportStatus.rejected:
+          bootLog.error('model-import($tag): gate rejected: ${r.message}');
+          return _ModelImportOutcome(
             ModelImportStatus.rejected,
             message: r.message,
-          ),
-      };
+          );
+      }
     } catch (e) {
+      bootLog.error('model-import($tag): json add failed: ${_shortErr(e)}');
       return _ModelImportOutcome(
         ModelImportStatus.rejected,
         message: '入库失败：${_shortErr(e)}',
@@ -5006,8 +5055,10 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
   try {
     data = ObjParser.parse(text);
   } on ObjParseException catch (e) {
+    bootLog.error('model-import($tag): obj parse failed: ${e.message}');
     return _ModelImportOutcome(ModelImportStatus.rejected, message: e.message);
   } catch (e) {
+    bootLog.error('model-import($tag): obj parse failed: ${_shortErr(e)}');
     return _ModelImportOutcome(
       ModelImportStatus.rejected,
       message: 'OBJ 解析失败：${_shortErr(e)}',
@@ -5016,6 +5067,7 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
   final baseName = _baseNameOf(file.name);
   if (!nav.mounted) {
     // 连 root nav 都没了（页面已退出 / 整棵树被销毁）：不弹对话框，按默认值入库。
+    bootLog.line('model-import($tag): nav gone auto ($baseName)');
     return _autoImportObj(
       store: store,
       cat: cat,
@@ -5023,6 +5075,7 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
       text: text,
       data: data,
       baseName: baseName,
+      menu: tag,
     );
   }
   final draft = await nav.push<_LibDraft>(
@@ -5047,12 +5100,9 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
     ),
   );
   if (draft == null) {
-    // 用户关掉命名对话框：以前静默 return，现在给一句可见提示（sheet 若已关就只记日志）。
-    if (nav.mounted) {
-      _snackOf(nav.context, '已取消导入');
-    } else {
-      bootLog.line('model-import: naming dialog dismissed, nav gone (cancel)');
-    }
+    // 用户关掉命名对话框：root messenger 给一句可见提示（sheet 若已关也不影响）。
+    bootLog.line('model-import($tag): dialog dismissed (cancel)');
+    _rootSnack(nav, '已取消导入');
     return null;
   }
   final id = LibModel.newImportId(baseName);
@@ -5076,8 +5126,13 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
       (m) => m.id == model.id,
       orElse: () => model,
     );
+    bootLog.line(
+      'model-import($tag): added name=${saved.name} id=${saved.id} '
+      'mm=${data.wMm}x${data.dMm}x${data.hMm} sil=${saved.sil != null}',
+    );
     return _ModelImportOutcome(ModelImportStatus.added, model: saved);
   } catch (e) {
+    bootLog.error('model-import($tag): add failed: ${_shortErr(e)}');
     return _ModelImportOutcome(
       ModelImportStatus.rejected,
       message: '入库失败：${_shortErr(e)}',
@@ -5095,7 +5150,9 @@ Future<_ModelImportOutcome> _autoImportObj({
   required String text,
   required ObjData data,
   required String baseName,
+  String menu = '',
 }) async {
+  final tag = menu.isEmpty ? cat : menu;
   final id = LibModel.newImportId(baseName);
   final model = LibModel(
     id: id,
@@ -5116,13 +5173,13 @@ Future<_ModelImportOutcome> _autoImportObj({
       orElse: () => model,
     );
     bootLog.line(
-      'model-import auto (nav gone): name=${saved.name} cat=$cat '
+      'model-import($tag): auto added (nav gone) name=${saved.name} cat=$cat '
       'subCat=${subCat ?? '-'} mm=${data.wMm}x${data.dMm}x${data.hMm} '
       'id=${saved.id} sil=${saved.sil != null}',
     );
     return _ModelImportOutcome(ModelImportStatus.added, model: saved);
   } catch (e) {
-    bootLog.error('model-import auto failed ($baseName): ${_shortErr(e)}');
+    bootLog.error('model-import($tag): auto failed ($baseName): ${_shortErr(e)}');
     return _ModelImportOutcome(
       ModelImportStatus.rejected,
       message: '入库失败：${_shortErr(e)}',
@@ -5233,12 +5290,12 @@ class _ModelMenuSheetState extends State<_ModelMenuSheet> {
       file = await ModelFiles.pickModelFile(dialogTitle: '导入模型');
     } catch (e) {
       bootLog.error('model-import(${widget.cat}): picker failed: ${_shortErr(e)}');
-      if (!mounted) return;
-      _snackOf(context, '打不开文件选择器：${_shortErr(e)}');
+      _rootSnack(nav, '打不开文件选择器：${_shortErr(e)}');
       return;
     }
     if (file == null) {
-      bootLog.line('model-import(${widget.cat}): picker null (user cancel)');
+      bootLog.line('model-import(${widget.cat}): picker null (user cancel / lost)');
+      _rootSnack(nav, '未选择文件（已取消）');
       return;
     }
     if (mounted) setState(() => _busy = true);
@@ -5248,20 +5305,13 @@ class _ModelMenuSheetState extends State<_ModelMenuSheet> {
       cat: widget.cat,
       subCat: widget.subCat,
       file: file,
+      menu: widget.cat,
     );
-    if (!mounted) return;
-    setState(() => _busy = false);
-    if (out == null) return;
-    switch (out.status) {
-      case ModelImportStatus.added:
-        await _reload();
-        if (!mounted) return;
-        _snackOf(context, '已导入「${out.model?.name ?? ''}」');
-      case ModelImportStatus.duplicate:
-        _snackOf(context, '已在库中：${out.model?.name ?? ''}（id 重复，已跳过）');
-      case ModelImportStatus.rejected:
-        _snackOf(context, out.message ?? '导入失败');
-    }
+    if (mounted) setState(() => _busy = false);
+    // 结果提示走 root messenger：不依赖 sheet 的 mounted。
+    if (out != null) _rootSnack(nav, _importResultText(out));
+    if (out == null || out.status != ModelImportStatus.added || !mounted) return;
+    await _reload();
   }
 
   Future<void> _exportSpec(ModelSpec m) async {
@@ -5457,12 +5507,12 @@ class _UserAssetsSheetState extends State<_UserAssetsSheet> {
       file = await ModelFiles.pickModelFile(dialogTitle: '导入用户素材');
     } catch (e) {
       bootLog.error('model-import(userAssets): picker failed: ${_shortErr(e)}');
-      if (!mounted) return;
-      _snackOf(context, '打不开文件选择器：${_shortErr(e)}');
+      _rootSnack(nav, '打不开文件选择器：${_shortErr(e)}');
       return;
     }
     if (file == null) {
-      bootLog.line('model-import(userAssets): picker null (user cancel)');
+      bootLog.line('model-import(userAssets): picker null (user cancel / lost)');
+      _rootSnack(nav, '未选择文件（已取消）');
       return;
     }
     if (mounted) setState(() => _busy = true);
@@ -5471,20 +5521,13 @@ class _UserAssetsSheetState extends State<_UserAssetsSheet> {
       store: widget.libStore,
       cat: ModelLeaves.userAssets,
       file: file,
+      menu: 'userAssets',
     );
-    if (!mounted) return;
-    setState(() => _busy = false);
-    if (out == null) return;
-    switch (out.status) {
-      case ModelImportStatus.added:
-        await _reload();
-        if (!mounted) return;
-        _snackOf(context, '已导入「${out.model?.name ?? ''}」');
-      case ModelImportStatus.duplicate:
-        _snackOf(context, '已在库中：${out.model?.name ?? ''}（id 重复，已跳过）');
-      case ModelImportStatus.rejected:
-        _snackOf(context, out.message ?? '导入失败');
-    }
+    if (mounted) setState(() => _busy = false);
+    // 结果提示走 root messenger：不依赖 sheet 的 mounted。
+    if (out != null) _rootSnack(nav, _importResultText(out));
+    if (out == null || out.status != ModelImportStatus.added || !mounted) return;
+    await _reload();
   }
 
   Future<void> _export(LibModel m) async {

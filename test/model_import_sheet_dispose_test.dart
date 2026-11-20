@@ -118,6 +118,8 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(store.models, hasLength(1));
+    // 结果提示走 root messenger：sheet 已死，提示仍必须可见（v0.1.43）。
+    expect(find.text('已导入「我的桌子」'), findsOneWidget);
     final m = store.models.single;
     expect(m.name, '我的桌子'); // 默认名 = 文件基名
     expect(m.cat, ModelLeaves.furniture);
@@ -156,8 +158,57 @@ void main() {
     expect(m.cat, ModelLeaves.furniture);
     expect(m.subCat, '卧室');
     expect(m.sil, isNotNull);
-    // bootLog 留痕一行（复用启动日志通道，不新造错误页）。
-    expect(bootLog.panelText(), contains('model-import auto (nav gone)'));
+    // bootLog 留痕：nav 丢失 → 自动入库，两条都在（v0.1.43 统一前缀）。
+    final log = bootLog.panelText();
+    expect(log, contains('model-import(furniture): nav gone auto'));
+    expect(log, contains('model-import(furniture): auto added (nav gone)'));
+  });
+
+  testWidgets('picker 返回 null（取消 / 通道丢结果）→ root 级「未选择文件」可见',
+      (tester) async {
+    await pumpEditor(tester);
+    await openFurnitureSheet(tester);
+
+    picker.completer = Completer<PlatformFile?>();
+    await tester.tap(find.byKey(const ValueKey('import_obj_tile')));
+    await tester.pump();
+
+    // 选择器期间 sheet 被关掉：旧实现 out/context 全丢，屏上什么都看不到。
+    Navigator.of(tester.element(find.text('导入模型…'))).pop();
+    await tester.pumpAndSettle();
+    expect(find.text('导入模型…'), findsNothing);
+
+    picker.completer!.complete(null);
+    await tester.pumpAndSettle();
+
+    // 「用户取消」和「平台通道根本没回文件」在屏上必须可区分于「死寂」。
+    expect(find.text('未选择文件（已取消）'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    expect(bootLog.panelText(),
+        contains('model-import(furniture): picker null (user cancel / lost)'));
+  });
+
+  testWidgets('解析失败（OBJ 无面）且 sheet 已销毁 → 结果提示仍上屏 + 日志',
+      (tester) async {
+    await pumpEditor(tester);
+    await openFurnitureSheet(tester);
+
+    picker.completer = Completer<PlatformFile?>();
+    await tester.tap(find.byKey(const ValueKey('import_obj_tile')));
+    await tester.pump();
+    Navigator.of(tester.element(find.text('导入模型…'))).pop();
+    await tester.pumpAndSettle();
+
+    picker.completer!.complete(
+      _FakePlatformFile('bad.obj', Uint8List.fromList(utf8.encode('v 0 0 0\n'))),
+    );
+    await tester.pumpAndSettle();
+
+    // 旧实现 out != null 但 !mounted → 整条 rejected 结果被丢掉；现在照发。
+    expect(find.textContaining('OBJ 没有面数据'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    expect(bootLog.panelText(),
+        contains('model-import(furniture): obj parse failed'));
   });
 }
 
