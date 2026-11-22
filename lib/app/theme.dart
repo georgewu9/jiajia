@@ -49,7 +49,7 @@ class JiajiaTheme {
     );
     return base.copyWith(
       appBarTheme: const AppBarTheme(
-        backgroundColor: JiajiaColors.bgBase,
+        backgroundColor: JiajiaColors.surface,
         elevation: 0,
         centerTitle: false,
         titleTextStyle: TextStyle(

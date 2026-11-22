@@ -39,13 +39,20 @@ void main() {
       expect(JiajiaColors.sel, isNot(const Color(0xFFFFD60A)));
     });
 
-    test('JiajiaTheme 已是亮色主题（scaffold 薄荷底 / 卡片白）', () {
+    test('JiajiaTheme 已是亮色主题（scaffold 薄荷底 / 卡片白 / 顶栏白）', () {
       final t = JiajiaTheme.light;
       expect(t.brightness, Brightness.light);
       expect(t.scaffoldBackgroundColor, JiajiaColors.bgBase);
       expect(t.colorScheme.primary, JiajiaColors.accent);
       expect(t.colorScheme.onSurface, JiajiaColors.text1);
-      expect(t.appBarTheme.backgroundColor, JiajiaColors.bgBase);
+      // v0.1.47：顶栏改白底（与薄荷画布分层）——不再与画布同色
+      expect(t.appBarTheme.backgroundColor, JiajiaColors.surface);
+      expect(t.appBarTheme.backgroundColor, const Color(0xFFFFFFFF));
+      expect(
+        t.appBarTheme.backgroundColor,
+        isNot(JiajiaColors.bgBase),
+        reason: 'AppBar 应与薄荷画布底色分层，不能再用 bgBase',
+      );
       expect(
         t.navigationBarTheme.indicatorColor,
         JiajiaColors.accentSoft,

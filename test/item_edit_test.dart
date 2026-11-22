@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:jiajia/app/theme.dart';
 import 'package:jiajia/features/floorplan/domain/floor_plan.dart';
 import 'package:jiajia/features/floorplan/presentation/floorplan_editor.dart';
 import 'package:jiajia/features/floorplan/state/editor_doc.dart';
@@ -385,6 +386,60 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       final o = container.read(editorDocProvider).plan.openings[oid]!;
       expect(o.offset, isNot(equals(1.0)), reason: '拖动后 offset 应发生变化');
+    });
+
+    testWidgets('v0.1.47：改尺寸面板「删除该件」图标/文字用翡翠强调色', (tester) async {
+      final (container, _) = await pumpEditorTall(tester);
+      await createRoom(tester);
+      final plan0 = container.read(editorDocProvider).plan;
+      var minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+      for (final w in plan0.walls.values) {
+        minX = math.min(minX, math.min(w.a.dx, w.b.dx));
+        maxX = math.max(maxX, math.max(w.a.dx, w.b.dx));
+        minY = math.min(minY, math.min(w.a.dy, w.b.dy));
+        maxY = math.max(maxY, w.b.dy);
+      }
+      final roomC = Vec2((minX + maxX) / 2, (minY + maxY) / 2);
+      final iid = plan0.newId('i');
+      container.read(editorDocProvider.notifier).mutate((p) {
+        p.items[iid] = FurnitureItem(
+          id: iid,
+          kind: FurnitureKind.stairR,
+          pos: roomC,
+          rotationDeg: 0,
+        );
+      });
+      await tester.pump();
+      final cRect = tester.getRect(find.byKey(const ValueKey('cv')));
+      final pt = worldToCanvas(cRect, plan0, roomC) + cRect.topLeft;
+
+      await tester.tap(find.text('选择'));
+      await tester.pump();
+      await tester.tapAt(pt);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('改尺寸'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final label = find.text('删除该件');
+      expect(label, findsOneWidget, reason: '改尺寸面板应有「删除该件」');
+      final labelColor = tester.widget<Text>(label).style?.color;
+      expect(labelColor, JiajiaColors.accent,
+          reason: '「删除该件」文字应为翡翠强调色');
+      expect(labelColor, isNot(JiajiaColors.text3),
+          reason: 'v0.1.47 起不再用 text3 灰');
+
+      // 同一行里的垃圾桶图标同色（页面别处的 delete_outline 不受影响）
+      final row = find
+          .ancestor(of: label, matching: find.byType(Row))
+          .first;
+      final iconFinder = find.descendant(
+        of: row,
+        matching: find.byIcon(Icons.delete_outline),
+      );
+      expect(iconFinder, findsOneWidget);
+      expect(tester.widget<Icon>(iconFinder).color, JiajiaColors.accent,
+          reason: '「删除该件」图标应为翡翠强调色');
     });
   });
 }

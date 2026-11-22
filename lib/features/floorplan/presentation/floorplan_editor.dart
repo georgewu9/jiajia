@@ -3443,8 +3443,8 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
               Row(
                 children: [
                   TextButton.icon(
-                    icon: const Icon(Icons.delete_outline, color: JiajiaColors.text3),
-                    label: const Text('删除该件', style: TextStyle(color: JiajiaColors.text3)),
+                    icon: const Icon(Icons.delete_outline, color: JiajiaColors.accent),
+                    label: const Text('删除该件', style: TextStyle(color: JiajiaColors.accent)),
                     onPressed: _delete,
                   ),
                   const Spacer(),
