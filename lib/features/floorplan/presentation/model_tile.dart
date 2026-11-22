@@ -2,7 +2,7 @@
 //
 // 颜色区分（需求 6）：
 //   · 系统模型（ModelSpec 目录来的）→ 现状：raised 底 + line 细边 + 无角标；
-//   · 用户模型（LibModelsStore 来的）→ 琥珀色边框（JiajiaColors.accent）+
+//   · 用户模型（LibModelsStore 来的）→ 翡翠绿边框（JiajiaColors.accent）+
 //     右上角「用户」角标（accentSoft 底 / accent 字）。
 // 长按任意 tile = 导出单件模型 JSON（回调由各 sheet 提供）。
 import 'package:flutter/material.dart';
@@ -17,7 +17,7 @@ class ModelTile extends StatelessWidget {
   final String? iconPath;
   final IconData fallbackIcon;
 
-  /// 是否用户模型（LibModelsStore）；true → 琥珀边 + 「用户」角标。
+  /// 是否用户模型（LibModelsStore）；true → 翡翠绿边 + 「用户」角标。
   final bool isUser;
 
   /// CC-BY 署名角标（系统素材 fountain 等）。

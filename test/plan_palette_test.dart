@@ -8,22 +8,48 @@ import 'package:jiajia/features/floorplan/domain/model_items.dart';
 import 'package:jiajia/features/floorplan/presentation/plan_palette.dart';
 
 /// v0.1.26：2D 画布 / 3D 视图层改亮色建筑风——配色与梁柱菜单的回归护栏。
-/// 约束：app 整体暗色主题不变，只动画布/视图层。
+/// v0.1.46：整体翻色「深琥珀辉光」→「浅薄荷翡翠绿」，本文件锁死新 token。
+/// 约束：3D 视图层（viewer.js / models.js / models_ext.js）天蓝配色不动。
 void main() {
-  group('2D 画布配色（亮色建筑风）', () {
-    test('PlanPalette 色值与设计稿一致', () {
-      expect(PlanPalette.bg, const Color(0xFFFAFAFA));
+  group('2D 画布配色（亮色建筑风 · 薄荷翡翠）', () {
+    test('PlanPalette 色值与 v0.1.46 翻色表一致', () {
+      expect(PlanPalette.bg, const Color(0xFFF0F5F5));
       expect(PlanPalette.wall, const Color(0xFF000000));
       expect(PlanPalette.opening, const Color(0xFF3B82F6));
       expect(PlanPalette.text, const Color(0xFF333333));
+      expect(PlanPalette.gridMinor, const Color(0xFFE3EBE9));
+      expect(PlanPalette.gridMajor, const Color(0xFFD9E4E1));
+      expect(PlanPalette.gridText, const Color(0xFFAAAAAA));
+      // 选中深翡翠（比 accent 深一档，与 UI 强调色区分）
+      expect(PlanPalette.sel, const Color(0xFF00857A));
     });
 
-    test('app 暗色主题未被改动（JiajiaColors 仍是原值）', () {
-      expect(JiajiaColors.bgBase, const Color(0xFF0E1117));
-      expect(JiajiaColors.surface, const Color(0xFF171B24));
-      expect(JiajiaColors.wall, const Color(0xFFE8E2D5));
-      expect(JiajiaColors.opening, const Color(0xFF4A90D9));
-      expect(JiajiaTheme.dark.brightness, Brightness.dark);
+    test('app 主题 token 翻成薄荷翡翠（关键 5 色锁死）', () {
+      expect(JiajiaColors.accent, const Color(0xFF00A88F));
+      expect(JiajiaColors.bgBase, const Color(0xFFF0F5F5));
+      expect(JiajiaColors.surface, const Color(0xFFFFFFFF));
+      expect(JiajiaColors.text1, const Color(0xFF2F3B47));
+      expect(JiajiaColors.sel, const Color(0xFF00857A));
+      // 辅助色一起锁（换回暗色/琥珀会被逮到）
+      expect(JiajiaColors.accentSoft, const Color(0x1F00A88F));
+      expect(JiajiaColors.selSoft, const Color(0x3300857A));
+      expect(JiajiaColors.opening, const Color(0xFF3B82F6));
+      // 琥珀 #FFB85C / 亮黄选中 #FFD60A 已全撤出
+      expect(JiajiaColors.accent, isNot(const Color(0xFFFFB85C)));
+      expect(JiajiaColors.sel, isNot(const Color(0xFFFFD60A)));
+    });
+
+    test('JiajiaTheme 已是亮色主题（scaffold 薄荷底 / 卡片白）', () {
+      final t = JiajiaTheme.light;
+      expect(t.brightness, Brightness.light);
+      expect(t.scaffoldBackgroundColor, JiajiaColors.bgBase);
+      expect(t.colorScheme.primary, JiajiaColors.accent);
+      expect(t.colorScheme.onSurface, JiajiaColors.text1);
+      expect(t.appBarTheme.backgroundColor, JiajiaColors.bgBase);
+      expect(
+        t.navigationBarTheme.indicatorColor,
+        JiajiaColors.accentSoft,
+      );
     });
   });
 

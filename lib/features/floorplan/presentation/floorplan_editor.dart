@@ -3452,7 +3452,7 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
                     onPressed: _apply,
                     style: FilledButton.styleFrom(
                       backgroundColor: JiajiaColors.accent,
-                      foregroundColor: JiajiaColors.bgBase,
+                      foregroundColor: JiajiaColors.text1,
                     ),
                     child: const Text('应用'),
                   ),
@@ -4496,7 +4496,7 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
     }
   }
 
-  /// 用户模型 tile：琥珀边 + 「用户」角标（ModelTile 统一处理）。
+  /// 用户模型 tile：翡翠绿边 + 「用户」角标（ModelTile 统一处理）。
   Widget _libTile(LibModel m) {
     final it = FurnitureTabItem(
       ref: 'lib:${m.id}',
@@ -4708,7 +4708,7 @@ class _LibModelDialog extends StatefulWidget {
   final List<String> subCats;
   final String? initialSubCat;
 
-  /// 可选补充说明（琥珀色，显示在面数行下面）。v0.1.44：超闸自动减面时
+  /// 可选补充说明（翡翠绿强调色，显示在面数行下面）。v0.1.44：超闸自动减面时
   /// 传「面数较大，已自动压缩 100000 → 4780」；未减面为 null（旧观感不变）。
   final String? note;
 

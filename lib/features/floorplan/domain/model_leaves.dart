@@ -40,14 +40,14 @@ class ModelLeaves {
       cat == null || cat.trim().isEmpty || cat == userAssets || !contains(cat);
 
   /// 叶子分类的稳定默认色（导入 OBJ 没有颜色信息时按 id 散列取一个）。
-  /// 与 3D 占位调色板同一组暖色，避免用户模型全是灰。
+  /// 与 3D 占位调色板同一组色，末档为与强调色同族的翡翠绿，避免用户模型全是灰。
   static const List<int> palette = [
     0x8FB7D6,
     0x9FD3A8,
     0xD9B28A,
     0xC7A88F,
     0xB08968,
-    0xFFB85C,
+    0x00A88F,
   ];
 
   static int defaultColor(String seed) {

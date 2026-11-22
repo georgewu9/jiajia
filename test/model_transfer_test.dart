@@ -395,7 +395,7 @@ void main() {
     test('payloadForPlan 用条目自身颜色（不再是轮转调色板）', () async {
       final docs = await tmp();
       final store = LibModelsStore(root: docs);
-      await store.save([mk('libA', '椅子', '家具', color: 0xFFB85C)]);
+      await store.save([mk('libA', '椅子', '家具', color: 0xFF00A88F)]);
       final plan = FloorPlan()..name = 'p';
       plan.items['i1'] = FurnitureItem(
         id: 'i1',
@@ -404,7 +404,7 @@ void main() {
         lib: 'libA',
       );
       final payload = await LibModelsStore.payloadForPlan(plan, store: store);
-      expect(payload.single['c'], 0xFFB85C);
+      expect(payload.single['c'], 0xFF00A88F);
     });
   });
 }

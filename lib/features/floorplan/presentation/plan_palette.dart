@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 
-/// 2D 平面画布配色（v0.1.26 亮色建筑风，设计稿「图3」）。
+/// 2D 平面画布配色（v0.1.26 亮色建筑风；v0.1.46 底改薄荷 #F0F5F5）。
 ///
-/// 只作用于 [_PlanPainter] 的绘制层：app 整体仍是暗色主题
-/// （[JiajiaColors] / [JiajiaTheme.dark] 不动），所以这些色不进 JiajiaColors。
+/// 只作用于 [_PlanPainter] 的绘制层。画布色单独成表（与 app 外壳的
+/// [JiajiaColors] 解耦），以免画布色渗进主题 token。
 class PlanPalette {
   const PlanPalette._();
 
-  /// 画布背景 #FAFAFA（原 JiajiaColors.bgBase #0E1117）
-  static const Color bg = Color(0xFFFAFAFA);
+  /// 画布背景 #F0F5F5（薄荷，与 JiajiaColors.bgBase 对齐）
+  static const Color bg = Color(0xFFF0F5F5);
 
   /// 墙体线 #000000（原 JiajiaColors.wall #E8E2D5）
   static const Color wall = Color(0xFF000000);
@@ -20,14 +20,15 @@ class PlanPalette {
   static const Color text = Color(0xFF333333);
 
   /// 次网格（亮底需浅灰，原 JiajiaColors.gridMinor 是深色）
-  static const Color gridMinor = Color(0xFFF0F0F0);
+  static const Color gridMinor = Color(0xFFE3EBE9);
 
   /// 主网格（原 JiajiaColors.gridMajor）
-  static const Color gridMajor = Color(0xFFE2E2E2);
+  static const Color gridMajor = Color(0xFFD9E4E1);
 
   /// 网格刻度文字
   static const Color gridText = Color(0xFFAAAAAA);
 
-  /// 选中高亮：原亮黄 #FFD60A 在 #FAFAFA 上几乎不可见，改亮橙。
-  static const Color sel = Color(0xFFF97316);
+  /// 选中高亮：深翡翠 #00857A——比 accent #00A88F 深一档，薄荷底上对比清晰，
+  /// 且与 UI 强调色区分（原亮橙 #F97316 已撤）。
+  static const Color sel = Color(0xFF00857A);
 }

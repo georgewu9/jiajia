@@ -15,7 +15,7 @@ import 'features/viewer3d/viewer3d_page.dart';
 
 /// 当前包版本（与 pubspec 同步发布；启动日志首行写它，
 /// 用户截图日志即可确认装的是哪个包 —— 不用翻设置页）。
-const String kAppVersion = '1.0.45';
+const String kAppVersion = '1.0.46';
 
 /// jiajia：画户型 → 摆家具 → 3D 浏览。
 void main() {
@@ -190,7 +190,9 @@ class _DiagnosticScreen extends StatelessWidget {
 
   Widget _body() {
     return Material(
-      color: const Color(0xF2141821),
+      // 诊断屏在 MaterialApp 之外（无 Theme），底色随亮色外壳走薄荷底，
+      // 保留 ~95% 不透明度让下层界面仍隐约可见（截图定位用）。
+      color: JiajiaColors.bgBase.withValues(alpha: 0.95),
       // 关键修复（v0.1.23）：「关闭」点不到 —— 旧版只有 padding:16，整屏
       // 没有 SafeArea，右下角按钮落在 Android 手势条/三键导航栏区域里，
       // 触摸被系统吃掉。这里四边都套 SafeArea，按钮自然抬到导航栏之上。
@@ -277,7 +279,7 @@ class _DiagnosticScreen extends StatelessWidget {
                       ),
                       style: FilledButton.styleFrom(
                         backgroundColor: JiajiaColors.accent,
-                        foregroundColor: const Color(0xFF141821),
+                        foregroundColor: JiajiaColors.text1,
                         minimumSize: const Size(148, 52),
                         padding: const EdgeInsets.symmetric(
                           horizontal: 28,
@@ -318,7 +320,7 @@ class JiajiaApp extends StatelessWidget {
     bootLog.line('JiajiaApp-built');
     return MaterialApp(
       title: 'jiajia',
-      theme: JiajiaTheme.dark,
+      theme: JiajiaTheme.light,
       navigatorObservers: [plansRouteObserver],
       home: const LandingPage(),
     );
@@ -643,14 +645,14 @@ class LandingPageState extends State<LandingPage> {
                       icon: const Icon(
                         Icons.draw,
                         size: 20,
-                        color: JiajiaColors.bgBase,
+                        color: JiajiaColors.text1,
                       ),
                       label: const Text(
                         '开始画户型',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
-                          color: JiajiaColors.bgBase,
+                          color: JiajiaColors.text1,
                         ),
                       ),
                     ),
