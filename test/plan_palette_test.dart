@@ -14,7 +14,7 @@ void main() {
   group('2D 画布配色（亮色建筑风 · 薄荷翡翠）', () {
     test('PlanPalette 色值与 v0.1.46 翻色表一致', () {
       expect(PlanPalette.bg, const Color(0xFFF0F5F5));
-      expect(PlanPalette.wall, const Color(0xFF000000));
+      expect(PlanPalette.wall, const Color(0xFF5A6470));
       expect(PlanPalette.opening, const Color(0xFF3B82F6));
       expect(PlanPalette.text, const Color(0xFF333333));
       expect(PlanPalette.gridMinor, const Color(0xFFE3EBE9));

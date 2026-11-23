@@ -201,6 +201,17 @@ void main() {
             ((w.decoration?.labelText ?? '').startsWith('宽')),
       );
       expect(wField, findsOneWidget, reason: '应找到「宽」输入框');
+      // v0.1.48：accent 实心底按钮统一白字前景（物品对话框「应用」）
+      final apply = tester.widget<FilledButton>(find
+          .ancestor(
+            of: find.text('应用'),
+            matching: find.byWidgetPredicate((w) => w is FilledButton),
+          )
+          .first);
+      expect(
+        apply.style?.foregroundColor?.resolve(const <WidgetState>{}),
+        Colors.white,
+      );
       await tester.enterText(wField, '1500');
       await tester.tap(find.byIcon(Icons.rotate_right));
       await tester.pump();

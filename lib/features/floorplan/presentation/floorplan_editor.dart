@@ -3452,7 +3452,7 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
                     onPressed: _apply,
                     style: FilledButton.styleFrom(
                       backgroundColor: JiajiaColors.accent,
-                      foregroundColor: JiajiaColors.text1,
+                      foregroundColor: Colors.white,
                     ),
                     child: const Text('应用'),
                   ),
@@ -3643,6 +3643,14 @@ class _PlanPainter extends CustomPainter {
             ..color = sel?.id == w.id
                 ? PlanPalette.sel
                 : PlanPalette.wall,
+        );
+        // 墙壁边框：同一 path 描 1px 黑色细线（选中/未选中都描，B 方案 v0.1.48）
+        canvas.drawPath(
+          path,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..color = const Color(0xFF000000)
+            ..strokeWidth = 1.0,
         );
         // 尺寸标注（mm）
         final mid = (p0o + p0i + p1o + p1i) / 4;

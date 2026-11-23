@@ -10,8 +10,8 @@ class PlanPalette {
   /// 画布背景 #F0F5F5（薄荷，与 JiajiaColors.bgBase 对齐）
   static const Color bg = Color(0xFFF0F5F5);
 
-  /// 墙体线 #000000（原 JiajiaColors.wall #E8E2D5）
-  static const Color wall = Color(0xFF000000);
+  /// 墙体实体 #5A6470（中灰，v0.1.48；配合 1px 黑色细线描边）
+  static const Color wall = Color(0xFF5A6470);
 
   /// 门窗线 #3B82F6（原 JiajiaColors.opening #4A90D9）
   static const Color opening = Color(0xFF3B82F6);

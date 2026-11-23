@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:jiajia/app/theme.dart';
 import 'package:jiajia/main.dart';
 
 void main() {
@@ -22,6 +23,18 @@ void main() {
     await tester.pump();
     expect(find.text('开始画户型'), findsOneWidget);
     expect(find.text('3D 浏览'), findsOneWidget);
+    // v0.1.48：accent 实心底按钮统一白字前景（封面 CTA）
+    final cta = tester.widget<FilledButton>(find
+        .ancestor(
+          of: find.text('开始画户型'),
+          matching: find.byWidgetPredicate((w) => w is FilledButton),
+        )
+        .first);
+    expect(
+      cta.style?.foregroundColor?.resolve(const <WidgetState>{}),
+      Colors.white,
+    );
+    expect((cta.style?.backgroundColor?.resolve(const <WidgetState>{})), JiajiaColors.accent);
     await tester.tap(find.text('开始画户型'));
     await tester.pumpAndSettle();
     // 编辑器工具条出现（v0.1.17：选择/画墙/建房/模块 四主入口）

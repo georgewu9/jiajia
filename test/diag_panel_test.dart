@@ -88,6 +88,18 @@ void main() {
       final panel = await pumpDiag(tester);
       expect(find.byType(SelectableText), findsOneWidget);
 
+      // v0.1.48：accent 实心底按钮统一白字前景（诊断屏「关闭」也是 accent 底）
+      final close = tester.widget<FilledButton>(find
+          .ancestor(
+            of: find.text('关闭'),
+            matching: find.byWidgetPredicate((w) => w is FilledButton),
+          )
+          .first);
+      expect(
+        close.style?.foregroundColor?.resolve(const <WidgetState>{}),
+        Colors.white,
+      );
+
       await tester.tap(find.byKey(btnKey));
       await tester.pump();
 

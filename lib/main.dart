@@ -15,7 +15,7 @@ import 'features/viewer3d/viewer3d_page.dart';
 
 /// 当前包版本（与 pubspec 同步发布；启动日志首行写它，
 /// 用户截图日志即可确认装的是哪个包 —— 不用翻设置页）。
-const String kAppVersion = '1.0.47';
+const String kAppVersion = '1.0.48';
 
 /// jiajia：画户型 → 摆家具 → 3D 浏览。
 void main() {
@@ -279,7 +279,7 @@ class _DiagnosticScreen extends StatelessWidget {
                       ),
                       style: FilledButton.styleFrom(
                         backgroundColor: JiajiaColors.accent,
-                        foregroundColor: JiajiaColors.text1,
+                        foregroundColor: Colors.white,
                         minimumSize: const Size(148, 52),
                         padding: const EdgeInsets.symmetric(
                           horizontal: 28,
@@ -622,6 +622,8 @@ class LandingPageState extends State<LandingPage> {
                     child: FilledButton.icon(
                       style: FilledButton.styleFrom(
                         backgroundColor: JiajiaColors.accent,
+                        // 统一规则：accent 实心底按钮一律白字（v0.1.48）
+                        foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 20,
                           vertical: 16,
@@ -645,14 +647,14 @@ class LandingPageState extends State<LandingPage> {
                       icon: const Icon(
                         Icons.draw,
                         size: 20,
-                        color: JiajiaColors.text1,
+                        color: Colors.white,
                       ),
                       label: const Text(
                         '开始画户型',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
-                          color: JiajiaColors.text1,
+                          color: Colors.white,
                         ),
                       ),
                     ),
