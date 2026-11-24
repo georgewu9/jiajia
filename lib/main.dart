@@ -15,7 +15,7 @@ import 'features/viewer3d/viewer3d_page.dart';
 
 /// 当前包版本（与 pubspec 同步发布；启动日志首行写它，
 /// 用户截图日志即可确认装的是哪个包 —— 不用翻设置页）。
-const String kAppVersion = '1.0.48';
+const String kAppVersion = '1.0.49';
 
 /// jiajia：画户型 → 摆家具 → 3D 浏览。
 void main() {

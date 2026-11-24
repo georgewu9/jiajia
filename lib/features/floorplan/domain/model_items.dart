@@ -386,6 +386,9 @@ class ModelItems {
       icon: 'assets/models2d/icon_liang.png',
       place: ModelPlace.floor,
       floorKind: FurnitureKind.beam,
+      // v0.1.49：梁默认挂梁底 2400mm（默认墙高 2800 − 梁高 350，梁顶留 50）；
+      // 旧户型存量 off 仍是 0，不做迁移。
+      offFloorMm: 2400,
     ),
     ModelSpec(
       id: 'fengguan',

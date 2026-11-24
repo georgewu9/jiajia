@@ -1,7 +1,7 @@
 /* jiajia 3D 场景：户型 → 三维。单位：米。
  * 数据契约（Dart FloorPlan.toJsonString()）:
  * { name, walls:[{id,ax,ay,bx,by,t,h}], openings:[{id,wall,kind,off,w,sill}],
- *   items:[{id,kind,x,y,rot,model?,lib?,sw?,sd?,sh?,el?}],
+ *   items:[{id,kind,x,y,rot,model?,lib?,sw?,sd?,sh?,el?,off?}],
  *   libs:[{id,n,obj,w,d,h,c}] }   // libs 只含本户型 kind=lib 引用到的库模型
  * 桥：window.dart.postMessage(JSON.stringify({type,...}))
  *     Dart 调 window.jiajia.setPlan(jsonStr) / .setMode('top'|'orbit'|'first')
@@ -950,7 +950,7 @@
       var box = new THREE.Mesh(
           new THREE.BoxGeometry(bw, bh, bd),
           new THREE.MeshStandardMaterial({ color: spec[3] }));
-      box.position.set(i.x, bh / 2, i.y);
+      box.position.set(i.x, (i.el || 0) + liftM + bh / 2, i.y);
       box.rotation.y = -((i.rot || 0) * Math.PI / 180);
       box.userData = { id: i.id, kind: i.kind };
       root.add(box);

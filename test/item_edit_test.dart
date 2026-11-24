@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jiajia/app/theme.dart';
 import 'package:jiajia/features/floorplan/domain/floor_plan.dart';
+import 'package:jiajia/features/floorplan/domain/model_items.dart';
 import 'package:jiajia/features/floorplan/presentation/floorplan_editor.dart';
 import 'package:jiajia/features/floorplan/state/editor_doc.dart';
 
@@ -127,6 +128,23 @@ void main() {
         ],
       }));
       expect(legacy.items['g1']!.offFloorMm, isNull);
+
+      // v0.1.49：非实模 kind（梁，无 modelId）也走 off 往返，且 el 不混写
+      final b = FurnitureItem(
+        id: 'b1',
+        kind: FurnitureKind.beam,
+        pos: const Vec2(0, 0),
+        offFloorMm: 2400,
+      );
+      final braw = FloorPlan()
+        ..items['b1'] = b;
+      final bjson = braw.toJsonString();
+      expect(bjson.contains('"off":2400'), true, reason: '梁 off 应为 mm 整数');
+      expect(bjson.contains('"el"'), false, reason: '梁不写 elevation');
+      final bit = FloorPlan.fromJsonString(bjson).items['b1']!;
+      expect(bit.kind, FurnitureKind.beam);
+      expect(bit.offFloorMm, 2400);
+      expect(bit.elevation, 0);
     });
 
     test('v0.1.24 elevation：JSON 往返 el + 旧 JSON 默认 0', () {
@@ -356,6 +374,174 @@ void main() {
       expect(it.offFloorMm, 1450, reason: '离地高度写回 mm 整数');
       expect(it.footprint.$1, closeTo(3.1, 1e-3), reason: '2D 占地不受影响');
       expect(it.elevation, 0, reason: 'offFloorMm 不写 elevation');
+    });
+
+    testWidgets('v0.1.49 梁「离地高度」：初值 = spec 默认 2400，+50 应用写 offFloorMm',
+        (tester) async {
+      final (container, _) = await pumpEditorTall(tester);
+      await createRoom(tester);
+      final plan0 = container.read(editorDocProvider).plan;
+      var minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+      for (final w in plan0.walls.values) {
+        minX = math.min(minX, math.min(w.a.dx, w.b.dx));
+        maxX = math.max(maxX, math.max(w.a.dx, w.b.dx));
+        minY = math.min(minY, math.min(w.a.dy, w.b.dy));
+        maxY = math.max(maxY, w.b.dy);
+      }
+      final roomC = Vec2((minX + maxX) / 2, (minY + maxY) / 2);
+      final beamSpec =
+          ModelItems.all.firstWhere((m) => m.floorKind == FurnitureKind.beam);
+      expect(beamSpec.offFloorMm, 2400, reason: '梁 spec 默认梁底 2400mm');
+      final iid = plan0.newId('i');
+      container.read(editorDocProvider.notifier).mutate((p) {
+        p.items[iid] = FurnitureItem(
+          id: iid,
+          kind: FurnitureKind.beam,
+          pos: roomC,
+          offFloorMm: beamSpec.offFloorMm,
+        );
+      });
+      await tester.pump();
+      final cRect = tester.getRect(find.byKey(const ValueKey('cv')));
+      final pt = worldToCanvas(cRect, plan0, roomC) + cRect.topLeft;
+
+      await tester.tap(find.text('选择'));
+      await tester.pump();
+      await tester.tapAt(pt);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('改尺寸'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final elField = find.byWidgetPredicate(
+        (w) =>
+            w is TextField &&
+            (w.decoration as InputDecoration).labelText == '离地高度 (mm)',
+      );
+      expect(elField, findsOneWidget, reason: '梁应显示离地高度输入框');
+      expect(tester.widget<TextField>(elField).controller!.text, '2400',
+          reason: '初值取 spec 默认 2400');
+      // 上限 6000（梁专用）：6500 应被拒绝且不写回
+      await tester.enterText(elField, '6500');
+      await tester.pump();
+      await tester.tap(find.text('应用'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300)); // SnackBar 入场
+      expect(find.text('离地高度需在 0..6000 mm 之间'), findsOneWidget,
+          reason: '梁上限 6000mm');
+      expect(container.read(editorDocProvider).plan.items[iid]!.offFloorMm,
+          2400, reason: '超上限不写回');
+      // 恢复 2400 → +50 → 2450
+      await tester.enterText(elField, '2400');
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('lift_plus')));
+      await tester.pump();
+      expect(tester.widget<TextField>(elField).controller!.text, '2450');
+      await tester.tap(find.text('应用'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final it = container.read(editorDocProvider).plan.items[iid]!;
+      expect(it.offFloorMm, 2450, reason: '梁离地写回 offFloorMm');
+      expect(it.elevation, 0, reason: '梁不写 elevation（防双重抬高）');
+      expect(it.baseDims.$3, closeTo(0.35, 1e-6),
+          reason: '梁高（「高」字段）不被离地高度影响');
+    });
+
+    testWidgets('v0.1.49 地台「离地高度」：初值 0 → 改 150 应用（2D 占地不变）',
+        (tester) async {
+      final (container, _) = await pumpEditorTall(tester);
+      await createRoom(tester);
+      final plan0 = container.read(editorDocProvider).plan;
+      var minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+      for (final w in plan0.walls.values) {
+        minX = math.min(minX, math.min(w.a.dx, w.b.dx));
+        maxX = math.max(maxX, math.max(w.a.dx, w.b.dx));
+        minY = math.min(minY, math.min(w.a.dy, w.b.dy));
+        maxY = math.max(maxY, w.b.dy);
+      }
+      final roomC = Vec2((minX + maxX) / 2, (minY + maxY) / 2);
+      final iid = plan0.newId('i');
+      container.read(editorDocProvider.notifier).mutate((p) {
+        p.items[iid] = FurnitureItem(
+          id: iid,
+          kind: FurnitureKind.platform,
+          pos: roomC,
+          offFloorMm: 0, // 放置路径写 0（落地）
+        );
+      });
+      await tester.pump();
+      final cRect = tester.getRect(find.byKey(const ValueKey('cv')));
+      final pt = worldToCanvas(cRect, plan0, roomC) + cRect.topLeft;
+
+      await tester.tap(find.text('选择'));
+      await tester.pump();
+      await tester.tapAt(pt);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('改尺寸'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final elField = find.byWidgetPredicate(
+        (w) =>
+            w is TextField &&
+            (w.decoration as InputDecoration).labelText == '离地高度 (mm)',
+      );
+      expect(elField, findsOneWidget, reason: '地台应显示离地高度输入框');
+      expect(tester.widget<TextField>(elField).controller!.text, '0',
+          reason: '地台默认落地 0');
+      await tester.enterText(elField, '150');
+      await tester.pump();
+      await tester.tap(find.text('应用'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final it = container.read(editorDocProvider).plan.items[iid]!;
+      expect(it.offFloorMm, 150, reason: '地台离地写回 offFloorMm');
+      expect(it.elevation, 0, reason: '地台不写 elevation');
+      expect(it.footprint.$1, closeTo(1.5, 1e-6), reason: '2D 占地不变');
+      expect(it.footprint.$2, closeTo(1.2, 1e-6), reason: '2D 占地不变');
+    });
+
+    testWidgets('v0.1.49 风管不显示「离地高度」（范围未扩散）', (tester) async {
+      final (container, _) = await pumpEditorTall(tester);
+      await createRoom(tester);
+      final plan0 = container.read(editorDocProvider).plan;
+      var minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+      for (final w in plan0.walls.values) {
+        minX = math.min(minX, math.min(w.a.dx, w.b.dx));
+        maxX = math.max(maxX, math.max(w.a.dx, w.b.dx));
+        minY = math.min(minY, math.min(w.a.dy, w.b.dy));
+        maxY = math.max(maxY, w.b.dy);
+      }
+      final p = Vec2((minX + maxX) / 2, (minY + maxY) / 2);
+      final iid = plan0.newId('i');
+      container.read(editorDocProvider.notifier).mutate((pp) {
+        pp.items[iid] = FurnitureItem(
+          id: iid,
+          kind: FurnitureKind.duct,
+          pos: p,
+        );
+      });
+      await tester.pump();
+      final cRect = tester.getRect(find.byKey(const ValueKey('cv')));
+      final pt = worldToCanvas(cRect, plan0, p) + cRect.topLeft;
+
+      await tester.tap(find.text('选择'));
+      await tester.pump();
+      await tester.tapAt(pt);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('改尺寸'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final elField = find.byWidgetPredicate(
+        (w) =>
+            w is TextField &&
+            (w.decoration as InputDecoration).labelText == '离地高度 (mm)',
+      );
+      expect(elField, findsNothing, reason: '风管本轮不给离地入口');
+      expect(find.byKey(const ValueKey('lift_plus')), findsNothing);
     });
 
     testWidgets('单击选开洞 → 操作条出现；沿墙拖动改 offset', (tester) async {

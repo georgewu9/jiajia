@@ -137,6 +137,16 @@ void main() {
       expect(liang.every((m) => m.place == ModelPlace.floor), true);
       expect(liang.every((m) => m.floorKind != null), true);
       expect(liang.every((m) => m.icon != null), true);
+      // v0.1.49：梁默认梁底 2400mm；地台仍落地（null → 放置写 0），其余梁柱件不抬高
+      final beamSpec = liang.firstWhere((m) => m.floorKind == FurnitureKind.beam);
+      expect(beamSpec.offFloorMm, 2400);
+      final platformSpec =
+          liang.firstWhere((m) => m.floorKind == FurnitureKind.platform);
+      expect(platformSpec.offFloorMm, isNull);
+      for (final m in liangzhu.where(
+          (m) => m.floorKind != FurnitureKind.beam)) {
+        expect(m.offFloorMm, isNull, reason: '${m.id} 不应带默认离地');
+      }
     });
   });
 
@@ -231,6 +241,29 @@ void main() {
       final plan = container.read(editorDocProvider).plan;
       expect(plan.items.length, 1);
       expect(plan.items.values.first.kind, FurnitureKind.pillar);
+    });
+
+    testWidgets('v0.1.49 梁柱菜单放梁 → 放置即挂梁底 2400mm（off）',
+        (tester) async {
+      final (container, _) = await pumpEditorTall(tester);
+      await tester.tap(find.text('模块'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('梁柱'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('梁'));
+      await tester.pump();
+      final cvF = find.byKey(const ValueKey('cv'));
+      await tester.tapAt(tester.getCenter(cvF));
+      await tester.pump(const Duration(milliseconds: 400)); // 越过双击窗口
+      await tester.pump();
+      final plan = container.read(editorDocProvider).plan;
+      expect(plan.items.length, 1);
+      final it = plan.items.values.first;
+      expect(it.kind, FurnitureKind.beam);
+      expect(it.offFloorMm, 2400, reason: '放置路径写入 spec 默认梁底标高');
+      expect(it.elevation, 0, reason: '梁不写 elevation');
     });
 
     testWidgets('拆房面板：选房 → 拆房 → 左右分 → 拆分 → 2 房',

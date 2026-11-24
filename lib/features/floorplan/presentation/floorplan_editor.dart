@@ -3184,7 +3184,7 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
   late final TextEditingController _wC;
   late final TextEditingController _dC;
   late final TextEditingController _hC;
-  late final TextEditingController _elC; // v0.1.24：楼梯离地高度（mm）
+  late final TextEditingController _elC; // v0.1.24：离地高度（mm，楼梯/实模/梁/地台）
   late double _rot;
 
   /// 楼梯类（模块·楼梯三种）：只有这些显示「离地高度」。
@@ -3193,17 +3193,28 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
       k == FurnitureKind.stairL ||
       k == FurnitureKind.stairR;
 
-  /// 实模物品（挂 modelId 的素材/柜类）：显示「离地高度」，写 offFloorMm。
-  static bool _isModelItem(FurnitureItem it) => it.modelId != null;
+  /// v0.1.49：走 mm 口径「离地高度」的件——写 offFloorMm（3D 底面抬高）。
+  /// 含实模（挂 modelId 的素材/柜类）、梁（梁底标高）、地台（台底标高）。
+  /// 楼梯走 elevation（米，楼层抬升），排除在外保证同一件只写一个字段。
+  static bool _usesMmFloorLift(FurnitureItem it) =>
+      !_isStairKind(it.kind) &&
+      (it.modelId != null ||
+          it.kind == FurnitureKind.beam ||
+          it.kind == FurnitureKind.platform);
 
-  /// 实模离地高度范围：0..3000mm（步进 50）。
-  static const int _liftMaxMm = 3000;
+  static bool _isBeamKind(FurnitureKind k) => k == FurnitureKind.beam;
+
+  /// 离地高度上限（mm）：梁 6000（挑高/别墅），地台与实模 3000。
+  static int _liftMaxMmOf(FurnitureItem? it) =>
+      (it != null && _isBeamKind(it.kind)) ? 6000 : 3000;
+
   static const int _liftStepMm = 50;
 
-  /// ±50mm 步进（夹在 0..3000）；2D 占地不变，仅 3D 抬高。
+  /// ±50mm 步进（夹在 0..该件上限）；2D 占地不变，仅 3D 抬高。
   void _bumpLift(int delta) {
     final cur = _parseMm0(_elC) ?? 0;
-    final v = (cur + delta).clamp(0, _liftMaxMm);
+    final item = ref.read(editorDocProvider).plan.items[widget.itemId];
+    final v = (cur + delta).clamp(0, _liftMaxMmOf(item));
     setState(() => _elC.text = '$v');
   }
 
@@ -3215,10 +3226,13 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
     _wC = TextEditingController(text: '${toMm(item?.sizeW ?? bw)}');
     _dC = TextEditingController(text: '${toMm(item?.sizeD ?? bd)}');
     _hC = TextEditingController(text: '${toMm(item?.sizeH ?? bh)}');
-    // 楼梯用 elevation；实模（modelId != null）用 offFloorMm（mm，吊装件用）
+    // 楼梯用 elevation（米）；实模/梁/地台用 offFloorMm（mm，吊装/架空件用）。
+    // 梁旧数据 off==null → 显示 0（落地），不回退去读 el，避免双重抬高。
     final liftMm = item == null
         ? 0
-        : (item.modelId != null ? (item.offFloorMm ?? 0) : toMm(item.elevation));
+        : (_usesMmFloorLift(item)
+            ? (item.offFloorMm ?? 0)
+            : toMm(item.elevation));
     _elC = TextEditingController(text: '$liftMm');
     _rot = item?.rotationDeg ?? 0;
   }
@@ -3260,14 +3274,15 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
     }
     final item = ref.read(editorDocProvider).plan.items[widget.itemId];
     final isStair = item != null && _isStairKind(item.kind);
-    final isModel = item != null && _isModelItem(item);
-    final elMm = (isStair || isModel) ? _parseMm0(_elC) : null;
-    if ((isStair || isModel) && elMm == null) {
+    final isLift = item != null && _usesMmFloorLift(item);
+    final liftMaxMm = _liftMaxMmOf(item);
+    final elMm = (isStair || isLift) ? _parseMm0(_elC) : null;
+    if ((isStair || isLift) && elMm == null) {
       _msg('离地高度需 ≥0 的整数（单位 mm）');
       return;
     }
-    if (isModel && elMm! > _liftMaxMm) {
-      _msg('离地高度需在 0..$_liftMaxMm mm 之间');
+    if (isLift && elMm! > liftMaxMm) {
+      _msg('离地高度需在 0..$liftMaxMm mm 之间');
       return;
     }
     ref.read(editorDocProvider.notifier).mutate((p) {
@@ -3277,8 +3292,9 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
       it.sizeD = fromMm(dMm);
       it.sizeH = fromMm(hMm);
       if (isStair && elMm != null) it.elevation = fromMm(elMm);
-      // v0.1.37：实模离地高度（mm 整数存 item.offFloorMm，viewer 按 /1000 抬高）
-      if (isModel && elMm != null) it.offFloorMm = elMm;
+      // v0.1.37/v0.1.49：实模·梁·地台的离地高度（mm 整数存 offFloorMm，
+      // viewer 按 /1000 抬高）；elevation 不动，保证不会 el+off 双重抬高。
+      if (isLift && elMm != null) it.offFloorMm = elMm;
       it.rotationDeg = _rot;
     });
     _msg('尺寸/旋转已更新');
@@ -3293,6 +3309,21 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
     _msg('已删除该件');
     widget.onApplied?.call();
     if (context.mounted) Navigator.pop(context);
+  }
+
+  /// 离地高度说明小字，按 kind 分支（梁/地台/实模）。
+  static String _liftHintOf(FurnitureKind k) {
+    switch (k) {
+      case FurnitureKind.beam:
+        return '梁底相对本层地面（mm，0..6000，±50 步进）；'
+            '梁高在上方「高」里改，2D 占地不变';
+      case FurnitureKind.platform:
+        return '台底相对地面（mm，0..3000，±50 步进）；'
+            '台面标高 = 离地 + 高，2D 占地不变';
+      default:
+        return '实模底部离地（mm，0..3000，±50 步进）：遮阳棚等吊装件用；'
+            '默认取素材规格（遮阳棚 1500），2D 占地不变';
+    }
   }
 
   Widget _mmField(String label, TextEditingController c) => Padding(
@@ -3324,7 +3355,7 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
     }
     final label = _itemLabelOf(item);
     final isStair = _isStairKind(item.kind);
-    final isModel = _isModelItem(item);
+    final isLift = _usesMmFloorLift(item);
     // 坑⑤：sheet 内容必须 DraggableScrollableSheet（与 _WallDialog 同款）
     return DraggableScrollableSheet(
       expand: false,
@@ -3369,8 +3400,9 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
                   style: TextStyle(color: JiajiaColors.text3, fontSize: 11),
                 ),
               ],
-              // v0.1.37：实模离地高度（遮阳棚等吊装件；2D 占地不变，只影响 3D）
-              if (isModel) ...[
+              // v0.1.37/v0.1.49：实模/梁/地台的离地高度（写 offFloorMm；
+              // 2D 占地不变，只影响 3D）。三块互斥，lift_minus/lift_plus 复用。
+              if (isLift) ...[
                 const SizedBox(height: 8),
                 Row(
                   children: [
@@ -3390,10 +3422,9 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
                   ],
                 ),
                 const SizedBox(height: 4),
-                const Text(
-                  '实模底部离地（mm，0..3000，±50 步进）：遮阳棚等吊装件用；'
-                  '默认取素材规格（遮阳棚 1500），2D 占地不变',
-                  style: TextStyle(color: JiajiaColors.text3, fontSize: 11),
+                Text(
+                  _liftHintOf(item.kind),
+                  style: const TextStyle(color: JiajiaColors.text3, fontSize: 11),
                 ),
               ],
               const SizedBox(height: 8),

@@ -378,8 +378,10 @@ class FurnitureItem {
   double elevation;
   // v0.1.31：模型库 id（kind=lib 时指向 LibModelsStore 的一条；JSON 键 lib）
   String? lib;
-  // v0.1.37：实模（kind=model 素材）离地高度（mm；JSON 键 off）。
-  // 放置时取 ModelSpec.offFloorMm（null → 0）；遮阳棚等吊装件用，2D 占地不受影响。
+  // v0.1.37：mm 口径「离地高度」= 吊装/架空件**底面**相对本层地面的毫米值（JSON 键 off）。
+  // 适用：实模（kind=model/asset）、梁（梁底标高）、地台（台底标高；台面 = 离地 + 高）。
+  // 与 elevation（米，楼梯楼层抬升）互斥由调用方保证：同一件只写 off 或只写 el；
+  // 放置时取 ModelSpec.offFloorMm（null → 0）；2D 占地不受影响。
   int? offFloorMm;
 
   FurnitureItem({
