@@ -18,6 +18,7 @@ import '../domain/model_items.dart';
 import 'lib_models_store.dart';
 import 'model_transfer.dart';
 import 'plan_io.dart';
+import '../../../app/i18n.dart';
 
 class ModelFiles {
   const ModelFiles._();
@@ -36,14 +37,14 @@ class ModelFiles {
   static Future<String?> saveJson({
     required String fileName,
     required String json,
-    String dialogTitle = '导出模型',
+    String? dialogTitle,
   }) async {
     final name = fileName.toLowerCase().endsWith('.json')
         ? fileName
         : '$fileName.json';
     try {
       final uri = await FilePicker.saveFile(
-        dialogTitle: dialogTitle,
+        dialogTitle: dialogTitle ?? t('dlg_export_model'),
         fileName: name,
         bytes: Uint8List.fromList(utf8.encode(json)),
         mimeType: 'application/json',
@@ -68,11 +69,11 @@ class ModelFiles {
   /// 按 MIME 过滤，`.obj` 无标准 MIME → 类型表只剩 application/json，用户放在
   /// Download/ 的 .obj 在选择器里根本不显示。放开后由导入流程自身把关。
   static Future<PlatformFile?> pickModelFile({
-    String dialogTitle = '导入模型',
+    String? dialogTitle,
     bool jsonOnly = false,
   }) {
     return FilePicker.pickFile(
-      dialogTitle: dialogTitle,
+      dialogTitle: dialogTitle ?? t('dlg_import_model'),
       type: jsonOnly ? FileType.custom : FileType.any,
       allowedExtensions: jsonOnly ? const ['json'] : null,
     );
@@ -152,7 +153,7 @@ class ModelExport {
     return ModelFiles.saveJson(
       fileName: fileName ?? ModelFiles.safeFileName(item.name),
       json: item.encodeSingle(),
-      dialogTitle: '导出单件模型',
+      dialogTitle: t('dlg_export_single'),
     );
   }
 
@@ -161,7 +162,7 @@ class ModelExport {
     return ModelFiles.saveJson(
       fileName: UserModelExportCodec.fileName,
       json: UserModelExportCodec.encodeAll(models),
-      dialogTitle: '导出用户模型',
+      dialogTitle: t('dlg_export_user_models'),
     );
   }
 }

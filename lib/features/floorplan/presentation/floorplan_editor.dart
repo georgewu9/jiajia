@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../app/i18n.dart';
 import '../../../app/theme.dart';
 import '../../../diag/boot_log.dart' show bootLog;
 import '../domain/floor_plan.dart';
@@ -179,6 +180,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(languageProvider); // 切语言 → 整页（底栏/操作条）重建
     final doc = ref.watch(editorDocProvider);
     final plan = doc.plan;
     return Scaffold(
@@ -194,12 +196,12 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.post_add, size: 20),
-            tooltip: '新建户型',
+            tooltip: t('new_plan'),
             onPressed: () => _newPlan(plan),
           ),
           IconButton(
             icon: const Icon(Icons.auto_stories, size: 20),
-            tooltip: '载入示例户型',
+            tooltip: t('load_sample'),
             onPressed: () => ref.read(editorDocProvider.notifier).mutate((p) {
               final s = samplePlan();
               p.name = s.name;
@@ -208,26 +210,26 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
           ),
           IconButton(
             icon: const Icon(Icons.undo, size: 20),
-            tooltip: '撤销',
+            tooltip: t('undo'),
             onPressed: ref.read(editorDocProvider.notifier).canUndo
                 ? () => ref.read(editorDocProvider.notifier).undo()
                 : null,
           ),
           IconButton(
             icon: const Icon(Icons.redo, size: 20),
-            tooltip: '重做',
+            tooltip: t('redo'),
             onPressed: ref.read(editorDocProvider.notifier).canRedo
                 ? () => ref.read(editorDocProvider.notifier).redo()
                 : null,
           ),
           IconButton(
             icon: const Icon(Icons.save, size: 20),
-            tooltip: '保存',
+            tooltip: t('save'),
             onPressed: () => _showSaveDialog(context, plan),
           ),
           IconButton(
             icon: const Icon(Icons.rotate_90_degrees_cw, size: 20),
-            tooltip: '旋转户型',
+            tooltip: t('rotate_plan'),
             onPressed: _openRotateDialog,
           ),
           IconButton(
@@ -236,7 +238,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
               size: 20,
               color: JiajiaColors.accent,
             ),
-            tooltip: '3D 浏览',
+            tooltip: t('view_3d'),
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const Viewer3dPage()),
@@ -327,8 +329,8 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          '点「画墙」后单指拖拽画墙（直线）· 端点自动吸附 · 45°角锁定\n双击墙体：设尺寸 mm / 加门洞',
+                        Text(
+                          t('wall_hint'),
                           style: TextStyle(
                             color: JiajiaColors.text2,
                             fontSize: 11,
@@ -338,8 +340,8 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                           padding: const EdgeInsets.only(top: 6),
                           child: TextButton(
                             onPressed: () => _openRoomDialog(),
-                            child: const Text(
-                              '输入尺寸 一键建房间 →',
+                            child: Text(
+                              t('room_quick_entry'),
                               style: TextStyle(
                                 color: JiajiaColors.accent,
                                 fontSize: 12,
@@ -422,7 +424,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                         p.items.remove(_sel!.id);
                         _sel = null;
                       });
-                      _toast('已删除该件');
+                      _toast(t('deleted_item'));
                     },
                     onClear: () => setState(() => _sel = null),
                   ),
@@ -451,25 +453,25 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                     //   · 选择/画墙/模块 → 看 _tool（建房面板打开时让位给「建房」）
                     //   · 建房 → 看 _roomSheetOpen（面板打开期间高亮）
                     _toolChip(
-                      '选择',
+                      t('tool_select'),
                       Icons.touch_app,
                       _tool == EditorTool.select && !_roomSheetOpen,
                       () => _setTool(EditorTool.select),
                     ),
                     _toolChip(
-                      '画墙',
+                      t('tool_wall'),
                       Icons.draw,
                       _tool == EditorTool.wall && !_roomSheetOpen,
                       () => _setTool(EditorTool.wall),
                     ),
                     _toolChip(
-                      '建房',
+                      t('tool_room'),
                       Icons.room,
                       _roomSheetOpen,
                       _openRoomDialog,
                     ),
                     _toolChip(
-                      '模块',
+                      t('module'),
                       Icons.category,
                       _tool == EditorTool.furniture && !_roomSheetOpen,
                       _openModuleSheet,
@@ -506,7 +508,12 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                               color: JiajiaColors.accent,
                             ),
                             label: Text(
-                              '放：${_pendingModel!.label} → 点${_pendingModel!.place == ModelPlace.wall ? '墙' : '画布'}（放下后自动回选择）',
+                              t('placing_model', args: [
+                                _pendingModel!.label,
+                                _pendingModel!.place == ModelPlace.wall
+                                    ? t('wall_word')
+                                    : t('canvas_word'),
+                              ]),
                               style: const TextStyle(fontSize: 12),
                             ),
                             backgroundColor: JiajiaColors.accentSoft,
@@ -523,7 +530,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                               color: JiajiaColors.accent,
                             ),
                             label: Text(
-                              '放：${_pendingKindLabel()} → 点画布（放下后自动回选择）',
+                              t('placing_canvas', args: [_pendingKindLabel()]),
                               style: const TextStyle(fontSize: 12),
                             ),
                             backgroundColor: JiajiaColors.accentSoft,
@@ -659,9 +666,9 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
           controller: sc,
           padding: const EdgeInsets.all(16),
           children: [
-            const Text(
-              '模块',
-              style: TextStyle(
+            Text(
+              t('module'),
+              style: const TextStyle(
                 color: JiajiaColors.text1,
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
@@ -673,7 +680,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
               runSpacing: 8,
               children: [
                 _moduleEntry(
-                  ModelLeaves.door,
+                  ModelLeaves.labelOf(ModelLeaves.door),
                   Icons.door_sliding,
                   () => _openModuleModelsSheet(
                     ModelLeaves.door,
@@ -681,7 +688,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                   ),
                 ),
                 _moduleEntry(
-                  ModelLeaves.window,
+                  ModelLeaves.labelOf(ModelLeaves.window),
                   Icons.crop_square,
                   () => _openModuleModelsSheet(
                     ModelLeaves.window,
@@ -689,7 +696,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                   ),
                 ),
                 _moduleEntry(
-                  ModelLeaves.columnBeam,
+                  ModelLeaves.labelOf(ModelLeaves.columnBeam),
                   Icons.architecture,
                   () => _openModuleModelsSheet(
                     ModelLeaves.columnBeam,
@@ -697,16 +704,16 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                   ),
                 ),
                 _moduleEntry(
-                  ModelLeaves.stair,
+                  ModelLeaves.labelOf(ModelLeaves.stair),
                   Icons.escalator,
                   () => _openModuleModelsSheet(
                     ModelLeaves.stair,
                     ModelItems.ofCategory('楼梯'),
                   ),
                 ),
-                _moduleEntry('拆改', Icons.call_split, _openRenovSheet),
+                _moduleEntry(t('renovate'), Icons.call_split, _openRenovSheet),
                 _moduleEntry(
-                  ModelLeaves.specialWallWindow,
+                  ModelLeaves.labelOf(ModelLeaves.specialWallWindow),
                   Icons.opacity,
                   () => _openModuleModelsSheet(
                     ModelLeaves.specialWallWindow,
@@ -714,10 +721,10 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                   ),
                 ),
                 // v0.1.31：第 7 入口「家具」→ 单 sheet（5 分类 chips + 素材网格）
-                _moduleEntry('家具', Icons.bed, _openFurnitureSheet),
+                _moduleEntry(t('leaf_furniture'), Icons.bed, _openFurnitureSheet),
                 // v0.1.36：第 8 入口「庭院」→ 11 件 CC0/CC-BY 庭院 OBJ
                 _moduleEntry(
-                  ModelLeaves.courtyard,
+                  ModelLeaves.labelOf(ModelLeaves.courtyard),
                   Icons.park,
                   () => _openModuleModelsSheet(
                     ModelLeaves.courtyard,
@@ -726,19 +733,19 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                 ),
                 // ---- v0.1.38：用户模型搬运（模块页平级入口）----
                 _moduleEntry(
-                  '全量导出',
+                  t('export_all'),
                   Icons.file_upload_outlined,
                   _exportAllUserModels,
                   key: const ValueKey('module_full_export'),
                 ),
                 _moduleEntry(
-                  '全量导入',
+                  t('import_all'),
                   Icons.file_download_outlined,
                   _importAllUserModels,
                   key: const ValueKey('module_full_import'),
                 ),
                 _moduleEntry(
-                  ModelLeaves.userAssets,
+                  ModelLeaves.labelOf(ModelLeaves.userAssets),
                   Icons.folder_special,
                   _openUserAssetsSheet,
                   key: const ValueKey('module_user_assets'),
@@ -815,16 +822,16 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       where = await ModelFiles.saveJson(
         fileName: UserModelExportCodec.fileName,
         json: UserModelExportCodec.encodeAll(models),
-        dialogTitle: '导出用户模型',
+        dialogTitle: t('dlg_export_user_models'),
       );
     } catch (e) {
-      _toast('导出失败：${_errText(e)}');
+      _toast(t('export_failed_reason', args: [_errText(e)]));
       return;
     }
     if (where == null) return; // 用户取消
     _toast(models.isEmpty
-        ? '用户模型为空：已导出 0 件（可导入到其他设备累积）→ $where'
-        : '已导出 ${models.length} 件用户模型 → $where');
+        ? t('export_user_empty', args: [where])
+        : t('export_user_count', args: [models.length, where]));
   }
 
   /// 全量导入（v0.1.38）：逐条写回 LibModelsStore，libId 已存在跳过；
@@ -834,11 +841,11 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     PlatformFile? file;
     try {
       file = await ModelFiles.pickModelFile(
-        dialogTitle: '导入用户模型全量',
+        dialogTitle: t('dlg_import_user_models'),
         jsonOnly: true,
       );
     } catch (e) {
-      _toast('打不开文件选择器：${_errText(e)}');
+      _toast(t('picker_failed', args: [_errText(e)]));
       return;
     }
     if (file == null) return; // 用户取消
@@ -849,7 +856,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       _toast(e.message);
       return;
     } catch (e) {
-      _toast('读取用户模型失败：${_errText(e)}');
+      _toast(t('read_user_models_failed', args: [_errText(e)]));
       return;
     }
     UserModelMergeResult r;
@@ -860,12 +867,12 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
         invalid: payload.invalid,
       );
     } catch (e) {
-      _toast('导入失败：${_errText(e)}');
+      _toast(t('import_failed_reason', args: [_errText(e)]));
       return;
     }
     if (!mounted) return;
     await _reloadLibModels(); // 新条目立刻进 2D 轮廓缓存
-    _toast('导入 ${r.added} 件，跳过 ${r.skipped} 件');
+    _toast(t('import_count', args: [r.added, r.skipped]));
   }
 
   /// 用户素材（v0.1.38）：无分类（cat 空/未知）用户模型 + cat=用户素材 的条目。
@@ -942,7 +949,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       _pendingLib = null;
       _pendingLibDims = null;
     });
-    _toast('放置「${it.label}」：点画布摆放（放下后自动回选择）');
+    _toast(t('tap_canvas_place', args: [it.label]));
   }
 
   /// 模型库条目（kind=lib）：与 kind 家具同一条放置路径（_placeKindItem），
@@ -958,7 +965,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       _pendingLib = it.libId;
       _pendingLibDims = (it.libW ?? 1.0, it.libD ?? 0.6, it.libH ?? 1.0);
     });
-    _toast('放置「${it.label}」（库模型）：点画布摆放（放下后自动回选择）');
+    _toast(t('place_lib', args: [it.label]));
   }
 
   /// 待放置项标题：库模型显示库里的名字，其余按目录 label。
@@ -990,9 +997,9 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
           children: [
             Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Text(
-                    '拆改',
+                    t('renovate'),
                     style: TextStyle(
                       color: JiajiaColors.text1,
                       fontSize: 14,
@@ -1005,17 +1012,17 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                     Navigator.pop(context);
                     _openModuleSheet();
                   },
-                  child: const Text('← 模块', style: TextStyle(fontSize: 12)),
+                  child: Text(t('back_to_module'), style: const TextStyle(fontSize: 12)),
                 ),
               ],
             ),
             const SizedBox(height: 8),
-            _renovOption('分房间', '一个房间一分为二（加隔墙，可带门）', true, () {
+            _renovOption(t('split_room_option'), t('split_room_hint'), true, () {
               Navigator.pop(context);
               _splitSelectedRoom();
             }),
             const SizedBox(height: 8),
-            _renovOption('合并房间', '两间合一（待上线）', false, () {}),
+            _renovOption(t('merge_room_option'), t('merge_room_hint'), false, () {}),
           ],
         ),
       ),
@@ -1066,7 +1073,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   void _splitSelectedRoom() {
     final i = _roomIndexOf();
     if (i == null) {
-      _toast('先点选一个房间，再走 模块 → 拆改 → 分房间');
+      _toast(t('split_need_room'));
       return;
     }
     _openSplitDialog(i);
@@ -1078,8 +1085,8 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     _setTool(EditorTool.furniture);
     _pendingModel = m;
     _toast(m.place == ModelPlace.wall
-        ? '放置「${m.label}」：点一面墙开洞（放下后自动回选择）'
-        : '放置「${m.label}」：点画布摆放（放下后自动回选择）');
+        ? t('place_model_wall', args: [m.label])
+        : t('tap_canvas_place', args: [m.label]));
   }
 
   void _placeModelItem(Offset local, FloorPlan plan) {
@@ -1090,7 +1097,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     if (m.place == ModelPlace.wall) {
       final hit = _hitWall(plan, world);
       if (hit == null) {
-        _toast('点不到墙：门窗要贴着墙放，先点一面墙');
+        _toast(t('no_wall_for_opening'));
         return;
       }
       final wall = plan.walls[hit.id]!;
@@ -1098,9 +1105,10 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       final dv = world - wall.a;
       final ab = wall.b - wall.a;
       final alen = ab.length;
-      final t = alen == 0 ? 0.0 : (dv.dx * ab.dx + dv.dy * ab.dy) / alen;
+      final along = alen == 0 ? 0.0 : (dv.dx * ab.dx + dv.dy * ab.dy) / alen;
       final wM = m.defaultWmm / 1000;
-      final off = (t.clamp(0.0, wall.length) - wM / 2).clamp(0.02, wall.length - wM / 2);
+      final off = (along.clamp(0.0, wall.length) - wM / 2)
+          .clamp(0.02, wall.length - wM / 2);
       final oid = plan.newId('o');
       notifier.mutate((p) {
         p.openings[oid] = Opening(
@@ -1108,14 +1116,16 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
           wallId: hit.id,
           kind: m.kind,
           doorType: m.kind == OpeningKind.door ? m.doorType : DoorType.single,
-          offset: m.noLeaf ? t.clamp(0.0, wall.length) : off,
+          offset: m.noLeaf ? along.clamp(0.0, wall.length) : off,
           width: wM,
           sill: m.sillMm / 1000,
           height: m.heightMm / 1000,
           modelId: m.modelId,
         );
       });
-      _toast('${m.noLeaf ? '开洞' : '已开'} ${m.specText}');
+      _toast(m.noLeaf
+          ? t('cut_opening_item', args: [m.specText])
+          : t('opened_item', args: [m.specText]));
       // v0.1.17：放置/开洞确认即回「选择」，防误操作
       _setTool(EditorTool.select);
     } else {
@@ -1136,7 +1146,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
         );
         _sel = _Sel(fid, 'item');
       });
-      _toast('已放「${m.label}」（已回选择，点中后可拖动位置）');
+      _toast(t('placed_item', args: [m.label]));
       _setTool(EditorTool.select);
       setState(() => _sel = _Sel(fid, 'item')); // 保留选中新件（_setTool 会清 _sel）
     }
@@ -1171,7 +1181,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     final label = libId == null
         ? FurnitureCatalog.labelOf(k)
         : (LibModelsStore.nameOf(libId) ?? FurnitureCatalog.labelOf(k));
-    _toast('已放「$label」（已回选择，点中后可拖动位置）');
+    _toast(t('placed_item', args: [label]));
     _setTool(EditorTool.select);
     setState(() => _sel = _Sel(fid, 'item')); // 保留选中新件（_setTool 会清 _sel）
   }
@@ -1255,13 +1265,13 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     _sel = null;
     _cam.fit(_canvasSize, ref.read(editorDocProvider).plan);
     setState(() {});
-    _toast('已旋转 $deg°');
+    _toast(t('rotated', args: [deg]));
   }
 
   void _openRotateDialog() {
     final plan = ref.read(editorDocProvider).plan;
     if (plan.walls.isEmpty) {
-      _toast('没有可旋转的墙');
+      _toast(t('no_walls_to_rotate'));
       return;
     }
     double angle = 0;
@@ -1270,15 +1280,15 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       builder: (c) => StatefulBuilder(
         builder: (c2, setS) => AlertDialog(
           backgroundColor: JiajiaColors.surface,
-          title: const Text(
-            '旋转户型',
-            style: TextStyle(color: JiajiaColors.text1, fontSize: 16),
+          title: Text(
+            t('rotate_plan'),
+            style: const TextStyle(color: JiajiaColors.text1, fontSize: 16),
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                '当前 $angle°（绕户型中心）',
+                t('current_angle', args: [angle]),
                 style: const TextStyle(color: JiajiaColors.text2, fontSize: 12),
               ),
               const SizedBox(height: 10),
@@ -1309,17 +1319,17 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(c),
-              child: const Text('取消',
-                  style: TextStyle(color: JiajiaColors.text2)),
+              child: Text(t('cancel'),
+                  style: const TextStyle(color: JiajiaColors.text2)),
             ),
             FilledButton(
               onPressed: () {
                 Navigator.pop(c);
                 _applyRotate(angle.round() % 360);
               },
-              child: const Text(
-                '应用旋转',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              child: Text(
+                t('apply_rotate'),
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
               ),
             ),
           ],
@@ -1335,9 +1345,9 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       context: context,
       builder: (c) => AlertDialog(
         backgroundColor: JiajiaColors.surface,
-        title: const Text(
-          '保存户型',
-          style: TextStyle(color: JiajiaColors.text1, fontSize: 16),
+        title: Text(
+          t('save_plan_title'),
+          style: const TextStyle(color: JiajiaColors.text1, fontSize: 16),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1348,9 +1358,9 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
               autofocus: true,
               maxLength: 40,
               style: const TextStyle(color: JiajiaColors.text1, fontSize: 14),
-              decoration: const InputDecoration(
-                labelText: '文件名',
-                helperText: '将存入本机「我的户型」',
+              decoration: InputDecoration(
+                labelText: t('file_name'),
+                helperText: t('save_helper'),
               ),
             ),
             const SizedBox(height: 4),
@@ -1371,9 +1381,9 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
                 },
                 icon: const Icon(Icons.save_alt,
                     size: 16, color: JiajiaColors.accent),
-                label: const Text(
-                  '另存到外部…',
-                  style: TextStyle(fontSize: 12, color: JiajiaColors.text1),
+                label: Text(
+                  t('save_as_external'),
+                  style: const TextStyle(fontSize: 12, color: JiajiaColors.text1),
                 ),
                 style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: JiajiaColors.line),
@@ -1388,7 +1398,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
           TextButton(
             onPressed: () => Navigator.pop(c),
             child:
-                const Text('取消', style: TextStyle(color: JiajiaColors.text2)),
+                Text(t('cancel'), style: const TextStyle(color: JiajiaColors.text2)),
           ),
           FilledButton(
             onPressed: () async {
@@ -1399,9 +1409,9 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
               Navigator.pop(c);
               await _save(c, ref.read(editorDocProvider).plan);
             },
-            child: const Text(
-              '保存',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            child: Text(
+              t('save'),
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -1423,12 +1433,12 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       if (saved == null) return; // 用户取消：不提示
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('已导出到 ${PlanIo.displayLocation(saved, name)}'),
+        content: Text(t('exported_to', args: [PlanIo.displayLocation(saved, name)])),
       ));
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('导出失败')));
+          .showSnackBar(SnackBar(content: Text(t('export_failed'))));
     }
   }
 
@@ -1437,15 +1447,15 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: JiajiaColors.surface,
-        title: const Text('新建户型', style: TextStyle(color: JiajiaColors.text1)),
-        content: const Text(
-          '清空当前画布？（可撤销）',
-          style: TextStyle(color: JiajiaColors.text2),
+        title: Text(t('new_plan'), style: const TextStyle(color: JiajiaColors.text1)),
+        content: Text(
+          t('clear_canvas_q'),
+          style: const TextStyle(color: JiajiaColors.text2),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
+            child: Text(t('cancel')),
           ),
           TextButton(
             onPressed: () {
@@ -1462,9 +1472,9 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
               setState(() {});
               Navigator.pop(context);
             },
-            child: const Text(
-              '新建',
-              style: TextStyle(color: JiajiaColors.accent),
+            child: Text(
+              t('create_new'),
+              style: const TextStyle(color: JiajiaColors.accent),
             ),
           ),
         ],
@@ -1489,7 +1499,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('保存失败')));
+            .showSnackBar(SnackBar(content: Text(t('save_failed'))));
       }
     }
   }
@@ -1765,7 +1775,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
         if (wallSel != null) {
           _openWallDialog(wallSel.id);
         } else {
-          _toast('点不到墙：先画一段墙，再点墙开洞');
+          _toast(t('no_wall_draw_first'));
         }
         break;
       case EditorTool.furniture:
@@ -1789,7 +1799,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       case EditorTool.erase:
         final hit = _hitTest(plan, world);
         if (hit == null) {
-          _toast('没点到对象');
+          _toast(t('nothing_hit'));
           return;
         }
         notifier.mutate((p) {
@@ -1923,7 +1933,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
   /// 点「合并」后：记录来源房间，等用户点相邻房间。
   void _armMerge(int idx) {
     _mergeFrom = idx;
-    _toast('点一个与它相邻的房间 → 合并（删共用隔墙）');
+    _toast(t('merge_pick_neighbor'));
     setState(() {});
   }
 
@@ -1931,7 +1941,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     final plan = ref.read(editorDocProvider).plan;
     final shared = plan.sharedWallBetween(a, b);
     if (shared == null) {
-      _toast('两个房间不相邻（没有共用隔墙），不能合并');
+      _toast(t('not_adjacent'));
       return;
     }
     final messenger = ScaffoldMessenger.maybeOf(context);
@@ -1939,15 +1949,15 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       context: context,
       builder: (c) => AlertDialog(
         backgroundColor: JiajiaColors.surface,
-        title: const Text('合并房间', style: TextStyle(color: JiajiaColors.text1)),
-        content: const Text(
-          '合并将删除两房间之间的隔墙（含该墙上的门窗开洞）？',
-          style: TextStyle(color: JiajiaColors.text2),
+        title: Text(t('merge_title'), style: const TextStyle(color: JiajiaColors.text1)),
+        content: Text(
+          t('merge_body'),
+          style: const TextStyle(color: JiajiaColors.text2),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(c),
-            child: const Text('取消'),
+            child: Text(t('cancel')),
           ),
           TextButton(
             onPressed: () {
@@ -1958,10 +1968,11 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
               _mergeFrom = null;
               Navigator.pop(c);
               messenger?.showSnackBar(
-                const SnackBar(content: Text('已合并：隔墙已删除')),
+                SnackBar(content: Text(t('merged'))),
               );
             },
-            child: const Text('合并', style: TextStyle(color: JiajiaColors.accent)),
+            child: Text(t('merge_action'),
+                style: const TextStyle(color: JiajiaColors.accent)),
           ),
         ],
       ),
@@ -1982,7 +1993,7 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
     final plan = ref.read(editorDocProvider).plan;
     final rooms = plan.roomLoops();
     if (roomIdx < 0 || roomIdx >= rooms.length) {
-      _toast('房间已变化，请重新点选');
+      _toast(t('room_changed'));
       _sel = null;
       return;
     }
@@ -1992,15 +2003,15 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
       context: context,
       builder: (c) => AlertDialog(
         backgroundColor: JiajiaColors.surface,
-        title: const Text('删除房间', style: TextStyle(color: JiajiaColors.text1)),
+        title: Text(t('remove_room_title'), style: const TextStyle(color: JiajiaColors.text1)),
         content: Text(
-          '删除该房间的隔墙（与其他房间/外部共用的外墙会保留）？',
+          t('remove_room_body'),
           style: const TextStyle(color: JiajiaColors.text2),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(c),
-            child: const Text('取消'),
+            child: Text(t('cancel')),
           ),
           TextButton(
             onPressed: () {
@@ -2011,10 +2022,13 @@ class _FloorplanEditorPageState extends ConsumerState<FloorplanEditorPage> {
               _sel = null;
               Navigator.pop(c);
               messenger?.showSnackBar(SnackBar(
-                content: Text(n > 0 ? '已删除 $n 面隔墙' : '该房间全为共用墙，未删除'),
+                content: Text(n > 0
+                    ? t('removed_walls', args: [n])
+                    : t('room_all_shared')),
               ));
             },
-            child: const Text('删除', style: TextStyle(color: JiajiaColors.accent)),
+            child: Text(t('delete'),
+                style: const TextStyle(color: JiajiaColors.accent)),
           ),
         ],
       ),
@@ -2155,19 +2169,25 @@ class _ItemActionBar extends ConsumerWidget {
     return Container(
       color: JiajiaColors.raised,
       child: SafeArea(
-        child: Padding(
+        // 英文标签（Size/Delete/Cancel…）比中文长：整条可横向滚动，
+        // 360 宽也不会 RenderFlex 溢出（中文本来就不用滑）。
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           child: Row(
             children: [
-              Expanded(
+              SizedBox(
+                width: 132,
                 child: Text(
-                  '已放 $label · 拖动可移位置 · 双击改尺寸/旋转',
+                  t('item_bar_hint', args: [label]),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 11, color: JiajiaColors.text2),
                 ),
               ),
-              _act('改尺寸', Icons.straighten, onEdit),
-              _act('删除', Icons.delete_outline, onRemove),
-              _act('取消', Icons.close, onClear),
+              _act(t('act_size'), Icons.straighten, onEdit),
+              _act(t('act_delete'), Icons.delete_outline, onRemove),
+              _act(t('act_cancel'), Icons.close, onClear),
             ],
           ),
         ),
@@ -2179,9 +2199,20 @@ class _ItemActionBar extends ConsumerWidget {
         padding: const EdgeInsets.only(left: 4),
         child: TextButton.icon(
           icon: Icon(icon, size: 15),
-          label: Text(label, style: const TextStyle(fontSize: 12)),
+          // 英文标签更长（Size/Delete/Cancel）：压紧内边距 + 单行省略，
+          // 三个按钮 + 左侧提示在同一行里 360 宽也不溢出（v0.1.50）。
+          label: Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12)),
+          style: TextButton.styleFrom(
+            minimumSize: Size.zero,
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            visualDensity: VisualDensity.compact,
+          ),
           onPressed: cb,
-        ),
+          ),
       );
 }
 
@@ -2208,20 +2239,25 @@ class _OpeningActionBar extends StatelessWidget {
     return Container(
       color: JiajiaColors.raised,
       child: SafeArea(
-        child: Padding(
+        // 英文标签（Size/Delete/Cancel…）比中文长：整条可横向滚动，
+        // 360 宽也不会 RenderFlex 溢出（中文本来就不用滑）。
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           child: Row(
             children: [
-              Expanded(
+              SizedBox(
+                width: 132,
                 child: Text(
-                  '${o.label} · 拖动可沿墙改位置',
+                  t('opening_bar_hint', args: [o.label]),
+                  maxLines: 1,
                   style: const TextStyle(fontSize: 11, color: JiajiaColors.text2),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              _act('改尺寸', Icons.straighten, onOpen),
-              _act('删开洞', Icons.delete_outline, onRemove),
-              _act('取消', Icons.close, onClear),
+              _act(t('act_size'), Icons.straighten, onOpen),
+              _act(t('act_remove_opening'), Icons.delete_outline, onRemove),
+              _act(t('act_cancel'), Icons.close, onClear),
             ],
           ),
         ),
@@ -2233,9 +2269,20 @@ class _OpeningActionBar extends StatelessWidget {
         padding: const EdgeInsets.only(left: 4),
         child: TextButton.icon(
           icon: Icon(icon, size: 15),
-          label: Text(label, style: const TextStyle(fontSize: 12)),
+          // 英文标签更长（Size/Delete/Cancel）：压紧内边距 + 单行省略，
+          // 三个按钮 + 左侧提示在同一行里 360 宽也不溢出（v0.1.50）。
+          label: Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12)),
+          style: TextButton.styleFrom(
+            minimumSize: Size.zero,
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            visualDensity: VisualDensity.compact,
+          ),
           onPressed: cb,
-        ),
+          ),
       );
 }
 
@@ -2263,22 +2310,33 @@ class _WallActionBar extends StatelessWidget {
     return Container(
       color: JiajiaColors.raised,
       child: SafeArea(
-        child: Padding(
+        // 英文标签（Size/Delete/Cancel…）比中文长：整条可横向滚动，
+        // 360 宽也不会 RenderFlex 溢出（中文本来就不用滑）。
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           child: Row(
             children: [
-              Expanded(
+              SizedBox(
+                width: 132,
                 child: Text(
-                  '墙 $wallId · 长 ${toMm(wall.length)}mm · 厚 ${toMm(wall.thickness)} · 开洞 $opens',
+                  t('wall_bar_hint', args: [
+                    wallId,
+                    toMm(wall.length),
+                    toMm(wall.thickness),
+                    opens,
+                  ]),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 11,
                     color: JiajiaColors.text2,
                   ),
                 ),
               ),
-              _act('加开洞', Icons.add_comment, onOpen),
-              _act('删墙', Icons.delete_outline, onErase),
-              _act('取消', Icons.close, onClear),
+              _act(t('act_add_opening'), Icons.add_comment, onOpen),
+              _act(t('act_delete_wall'), Icons.delete_outline, onErase),
+              _act(t('act_cancel'), Icons.close, onClear),
             ],
           ),
         ),
@@ -2290,9 +2348,20 @@ class _WallActionBar extends StatelessWidget {
     padding: const EdgeInsets.only(left: 4),
     child: TextButton.icon(
       icon: Icon(icon, size: 15),
-      label: Text(label, style: const TextStyle(fontSize: 12)),
+      // 英文标签更长（Size/Delete/Cancel）：压紧内边距 + 单行省略，
+      // 三个按钮 + 左侧提示在同一行里 360 宽也不溢出（v0.1.50）。
+      label: Text(label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 12)),
+      style: TextButton.styleFrom(
+        minimumSize: Size.zero,
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.compact,
+      ),
       onPressed: cb,
-    ),
+      ),
   );
 }
 
@@ -2324,23 +2393,29 @@ class _RoomActionBar extends ConsumerWidget {
     return Container(
       color: JiajiaColors.raised,
       child: SafeArea(
-        child: Padding(
+        // 英文标签（Size/Delete/Cancel…）比中文长：整条可横向滚动，
+        // 360 宽也不会 RenderFlex 溢出（中文本来就不用滑）。
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           child: Row(
             children: [
-              Expanded(
+              SizedBox(
+                width: 132,
                 child: Text(
-                  '房间 ${m2.toStringAsFixed(1)}㎡ · 拖动可移动位置',
+                  t('room_bar_hint', args: [m2.toStringAsFixed(1)]),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 11,
                     color: JiajiaColors.text2,
                   ),
                 ),
               ),
-              _act('拆房', Icons.call_split, onSplit),
-              _act('合并', Icons.merge, onMerge),
-              _act('删除', Icons.delete_outline, onRemove),
-              _act('取消', Icons.close, onClear),
+              _act(t('act_split'), Icons.call_split, onSplit),
+              _act(t('merge_action'), Icons.merge, onMerge),
+              _act(t('act_delete'), Icons.delete_outline, onRemove),
+              _act(t('act_cancel'), Icons.close, onClear),
             ],
           ),
         ),
@@ -2352,9 +2427,20 @@ class _RoomActionBar extends ConsumerWidget {
         padding: const EdgeInsets.only(left: 4),
         child: TextButton.icon(
           icon: Icon(icon, size: 15),
-          label: Text(label, style: const TextStyle(fontSize: 12)),
+          // 英文标签更长（Size/Delete/Cancel）：压紧内边距 + 单行省略，
+          // 三个按钮 + 左侧提示在同一行里 360 宽也不溢出（v0.1.50）。
+          label: Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12)),
+          style: TextButton.styleFrom(
+            minimumSize: Size.zero,
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            visualDensity: VisualDensity.compact,
+          ),
           onPressed: cb,
-        ),
+          ),
       );
 }
 
@@ -2393,7 +2479,7 @@ class _SplitDialogState extends ConsumerState<_SplitDialog> {
             children: [
               Expanded(
                 child: Text(
-                  '拆房（房间 ${m2Text(loop)}）',
+                  t('split_title', args: [m2Text(loop)]),
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -2408,26 +2494,29 @@ class _SplitDialogState extends ConsumerState<_SplitDialog> {
             ],
           ),
           if (loop == null)
-            const Padding(
-              padding: EdgeInsets.all(12),
+            Padding(
+              padding: const EdgeInsets.all(12),
               child: Text(
-                '房间已变化，请重新点选',
+                t('room_changed'),
                 style: TextStyle(color: JiajiaColors.text2),
               ),
             )
           else ...[
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
               children: [
-                _axisChip('左右分（竖直墙）', 'v', _axis, () => setState(() => _axis = 'v')),
-                const SizedBox(width: 8),
-                _axisChip('上下分（水平墙）', 'h', _axis, () => setState(() => _axis = 'h')),
+                _axisChip(t('split_axis_lr'), 'v', _axis,
+                    () => setState(() => _axis = 'v')),
+                _axisChip(t('split_axis_tb'), 'h', _axis,
+                    () => setState(() => _axis = 'h')),
               ],
             ),
             const SizedBox(height: 8),
             Row(
               children: [
                 Text(
-                  '位置 ${( _frac * 100).round() }%',
+                  t('split_position', args: [( _frac * 100).round()]),
                   style: const TextStyle(color: JiajiaColors.text2, fontSize: 12),
                 ),
                 Expanded(
@@ -2447,7 +2536,7 @@ class _SplitDialogState extends ConsumerState<_SplitDialog> {
                   value: _withDoor,
                   onChanged: (v) => setState(() => _withDoor = v ?? true),
                 ),
-                const Text('隔墙加门（900）', style: TextStyle(fontSize: 12)),
+                Text(t('split_with_door'), style: const TextStyle(fontSize: 12)),
               ],
             ),
             const SizedBox(height: 8),
@@ -2468,13 +2557,13 @@ class _SplitDialogState extends ConsumerState<_SplitDialog> {
                   messenger?.showSnackBar(SnackBar(
                     content: Text(
                       ok
-                          ? '已拆房：隔墙 + ${_withDoor ? '门' : ''}'
-                          : '该房间太小或非轴对齐，拆不了',
+                          ? t('split_done', args: [_withDoor ? t('door_word') : ''])
+                          : t('split_failed'),
                     ),
                   ));
                 },
                 icon: const Icon(Icons.call_split, size: 18),
-                label: const Text('拆分'),
+                label: Text(t('split_action')),
               ),
             ),
           ],
@@ -2573,7 +2662,7 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
     if (wall == null) return;
     final lenMm = _parseMm(_lenC), hMm = _parseMm(_hC), tMm = _parseMm(_tC);
     if (lenMm == null || hMm == null || tMm == null) {
-      _msg('尺寸需 ≥1 mm 的整数（单位 mm）');
+      _msg(t('mm_size_int_required'));
       return;
     }
     ref.read(editorDocProvider.notifier).mutate((p) {
@@ -2592,7 +2681,7 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
         if (o.offset > lenM - o.width) o.offset = lenM - o.width;
       }
     });
-    _msg('墙尺寸已更新');
+    _msg(t('wall_dims_updated'));
     widget.onApplied?.call();
   }
 
@@ -2603,7 +2692,7 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
     final offMm = _parseMm(_offC, min: 0);
     final wMm = _parseMm(_wC), hMm = _parseMm(_ohC);
     if (offMm == null || wMm == null || hMm == null) {
-      _msg('开洞参数需 ≥0 的整数（单位 mm）');
+      _msg(t('opening_ints_required'));
       return;
     }
     ref.read(editorDocProvider.notifier).mutate((p) {
@@ -2631,7 +2720,7 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
         hingeLeft: _asWindow ? true : _hingeLeft,
       );
     });
-    _msg('已加开洞');
+    _msg(t('opening_added'));
     widget.onApplied?.call();
     if (context.mounted) Navigator.pop(context);
   }
@@ -2649,7 +2738,10 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
     final plan = ref.read(editorDocProvider).plan;
     final wall = plan.walls[widget.wallId];
     if (wall == null) {
-      return const Padding(padding: EdgeInsets.all(24), child: Text('墙已不存在'));
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(t('wall_missing')),
+      );
     }
     Widget mmField(String label, TextEditingController c) => Padding(
       padding: const EdgeInsets.only(right: 8),
@@ -2688,7 +2780,12 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
         padding: const EdgeInsets.all(16),
         children: [
           Text(
-            '墙 ${wall.id} · 当前 长 ${toMm(wall.length)}mm · 厚 ${toMm(wall.thickness)}mm · 高 ${toMm(wall.height)}mm',
+            t('wall_info', args: [
+              wall.id,
+              toMm(wall.length),
+              toMm(wall.thickness),
+              toMm(wall.height),
+            ]),
             style: const TextStyle(
               color: JiajiaColors.accent,
               fontSize: 13,
@@ -2697,7 +2794,7 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
           ),
           const SizedBox(height: 12),
           Text(
-            '墙尺寸',
+            t('wall_size'),
             style: const TextStyle(
               color: JiajiaColors.text2,
               fontSize: 12,
@@ -2706,18 +2803,18 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
           ),
           Row(
             children: [
-              Expanded(child: mmField('尺寸', _lenC)),
-              Expanded(child: mmField('墙高', _hC)),
-              Expanded(child: mmField('墙厚', _tC)),
+              Expanded(child: mmField(t('field_size'), _lenC)),
+              Expanded(child: mmField(t('wall_height'), _hC)),
+              Expanded(child: mmField(t('wall_thickness'), _tC)),
             ],
           ),
           Align(
             alignment: Alignment.centerLeft,
-            child: _accentBtn('应用墙尺寸（固定起点缩放）', _applyWallDims),
+            child: _accentBtn(t('apply_wall_dims'), _applyWallDims),
           ),
           const Divider(height: 24),
           Text(
-            '开洞（门 / 窗）',
+            t('openings_section'),
             style: const TextStyle(
               color: JiajiaColors.text2,
               fontSize: 12,
@@ -2736,7 +2833,8 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
                   onSelected: (_) => _pickType(false, dt),
                 ),
               ChoiceChip(
-                label: const Text('窗', style: TextStyle(fontSize: 12)),
+                label: Text(t('window_word'),
+                    style: const TextStyle(fontSize: 12)),
                 selected: _asWindow,
                 onSelected: (_) => _pickType(true, _dt),
               ),
@@ -2745,15 +2843,18 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
           const SizedBox(height: 8),
           Row(
             children: [
-              Expanded(child: mmField('离墙距离', _offC)),
-              Expanded(child: mmField('宽', _wC)),
-              Expanded(child: mmField(_asWindow ? '窗高' : '门高', _ohC)),
+              Expanded(child: mmField(t('offset_from_wall'), _offC)),
+              Expanded(child: mmField(t('width'), _wC)),
+              Expanded(child: mmField(
+                  _asWindow ? t('window_height') : t('door_height'), _ohC)),
             ],
           ),
           if (_asWindow)
             Padding(
               padding: const EdgeInsets.only(top: 6),
-              child: Row(children: [Expanded(child: mmField('窗台高', _sillC))]),
+              child: Row(children: [
+                Expanded(child: mmField(t('sill_height'), _sillC)),
+              ]),
             ),
           if (!_asWindow &&
               (_dt == DoorType.single || _dt == DoorType.double))
@@ -2761,19 +2862,22 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
               padding: const EdgeInsets.only(top: 6),
               child: Row(
                 children: [
-                  const Text(
-                    '开门方向',
-                    style: TextStyle(color: JiajiaColors.text3, fontSize: 12),
+                  Text(
+                    t('swing_direction'),
+                    style: const TextStyle(
+                        color: JiajiaColors.text3, fontSize: 12),
                   ),
                   const SizedBox(width: 8),
                   ChoiceChip(
-                    label: const Text('内开', style: TextStyle(fontSize: 12)),
+                    label: Text(t('swing_in'),
+                        style: const TextStyle(fontSize: 12)),
                     selected: !_outSwing,
                     onSelected: (_) => setState(() => _outSwing = false),
                   ),
                   const SizedBox(width: 4),
                   ChoiceChip(
-                    label: const Text('外开', style: TextStyle(fontSize: 12)),
+                    label: Text(t('swing_out'),
+                        style: const TextStyle(fontSize: 12)),
                     selected: _outSwing,
                     onSelected: (_) => setState(() => _outSwing = true),
                   ),
@@ -2786,19 +2890,22 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
               padding: const EdgeInsets.only(top: 6),
               child: Row(
                 children: [
-                  const Text(
-                    '铰链',
-                    style: TextStyle(color: JiajiaColors.text3, fontSize: 12),
+                  Text(
+                    t('hinge'),
+                    style: const TextStyle(
+                        color: JiajiaColors.text3, fontSize: 12),
                   ),
                   const SizedBox(width: 8),
                   ChoiceChip(
-                    label: const Text('左开', style: TextStyle(fontSize: 12)),
+                    label: Text(t('hinge_left'),
+                        style: const TextStyle(fontSize: 12)),
                     selected: _hingeLeft,
                     onSelected: (_) => setState(() => _hingeLeft = true),
                   ),
                   const SizedBox(width: 4),
                   ChoiceChip(
-                    label: const Text('右开', style: TextStyle(fontSize: 12)),
+                    label: Text(t('hinge_right'),
+                        style: const TextStyle(fontSize: 12)),
                     selected: !_hingeLeft,
                     onSelected: (_) => setState(() => _hingeLeft = false),
                   ),
@@ -2806,10 +2913,13 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
               ),
             ),
           const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              _accentBtn(_asWindow ? '加窗' : '加门', _addOpening),
+              _accentBtn(_asWindow ? t('add_window') : t('add_door'), _addOpening),
               TextButton(
                 onPressed: () {
                   ref.read(editorDocProvider.notifier).mutate((p) {
@@ -2818,9 +2928,9 @@ class _WallDialogState extends ConsumerState<_WallDialog> {
                   });
                   if (context.mounted) Navigator.pop(context);
                 },
-                child: const Text(
-                  '删除此墙',
-                  style: TextStyle(color: Colors.redAccent),
+                child: Text(
+                  t('delete_this_wall'),
+                  style: const TextStyle(color: Colors.redAccent),
                 ),
               ),
             ],
@@ -2932,19 +3042,19 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
     final plan = ref.read(editorDocProvider).plan;
     final o = plan.openings[widget.openingId];
     if (o == null) {
-      _msg('该开洞已不存在');
+      _msg(t('opening_missing'));
       return;
     }
     final wall = plan.walls[o.wallId];
     if (wall == null) {
-      _msg('所属墙已不存在，无法修改');
+      _msg(t('opening_wall_missing'));
       return;
     }
     final wMm = _parseMm(_wC, min: 1), offMm = _parseMm(_offC);
     final hMm = _parseMm(_hC, min: 1);
     final sillMm = _kind == OpeningKind.window ? _parseMm(_sillC) : 0;
     if (wMm == null || offMm == null || hMm == null || sillMm == null) {
-      _msg('参数需为 ≥0 的整数（单位 mm），宽度/洞高 ≥1');
+      _msg(t('opening_params_invalid'));
       return;
     }
     ref.read(editorDocProvider.notifier).mutate((p) {
@@ -2969,7 +3079,7 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
         modelId: o.modelId, // v0.1.34：改开洞参数不丢 CC0 门窗素材
       );
     });
-    _msg('开洞参数已更新');
+    _msg(t('opening_updated'));
     widget.onApplied?.call();
     if (context.mounted) Navigator.pop(context);
   }
@@ -2979,7 +3089,10 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
     final plan = ref.read(editorDocProvider).plan;
     final o = plan.openings[widget.openingId];
     if (o == null) {
-      return const Padding(padding: EdgeInsets.all(24), child: Text('开洞已不存在'));
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(t('opening_gone')),
+      );
     }
     Widget mmField(String label, TextEditingController c, {bool enabled = true}) =>
         Padding(
@@ -2990,7 +3103,9 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
         keyboardType: TextInputType.number,
         style: const TextStyle(color: JiajiaColors.text1, fontSize: 14),
         decoration: InputDecoration(
-          labelText: enabled ? '$label (mm)' : '$label（门=0）',
+          labelText: enabled
+              ? '$label (mm)'
+              : '$label${t('label_door_zero')}',
           labelStyle: const TextStyle(color: JiajiaColors.text3),
           isDense: true,
           contentPadding: const EdgeInsets.symmetric(
@@ -3034,7 +3149,11 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
         padding: const EdgeInsets.all(16),
         children: [
           Text(
-            '开洞 ${o.id} · ${o.kind == OpeningKind.window ? '窗' : '门'} · 宽 ${toMm(o.width)}mm',
+            t('opening_info', args: [
+              o.id,
+              o.kind == OpeningKind.window ? t('window_word') : t('door_word'),
+              toMm(o.width),
+            ]),
             style: const TextStyle(
               color: JiajiaColors.accent,
               fontSize: 13,
@@ -3045,12 +3164,12 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
           Row(
             children: [
               typeChip(
-                '窗',
+                t('window_word'),
                 _kind == OpeningKind.window,
                 () => _pickType(OpeningKind.window, _dt),
               ),
               typeChip(
-                '门',
+                t('door_word'),
                 _kind == OpeningKind.door,
                 () => _pickType(OpeningKind.door, _dt),
               ),
@@ -3078,18 +3197,19 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  const Text(
-                    '开门方向',
-                    style: TextStyle(color: JiajiaColors.text3, fontSize: 12),
+                  Text(
+                    t('swing_direction'),
+                    style: const TextStyle(
+                        color: JiajiaColors.text3, fontSize: 12),
                   ),
                   const SizedBox(width: 8),
                   typeChip(
-                    '内开',
+                    t('swing_in'),
                     !_outSwing,
                     () => setState(() => _outSwing = false),
                   ),
                   typeChip(
-                    '外开',
+                    t('swing_out'),
                     _outSwing,
                     () => setState(() => _outSwing = true),
                   ),
@@ -3098,18 +3218,19 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  const Text(
-                    '铰链',
-                    style: TextStyle(color: JiajiaColors.text3, fontSize: 12),
+                  Text(
+                    t('hinge'),
+                    style: const TextStyle(
+                        color: JiajiaColors.text3, fontSize: 12),
                   ),
                   const SizedBox(width: 8),
                   typeChip(
-                    '左开',
+                    t('hinge_left'),
                     _hingeLeft,
                     () => setState(() => _hingeLeft = true),
                   ),
                   typeChip(
-                    '右开',
+                    t('hinge_right'),
                     !_hingeLeft,
                     () => setState(() => _hingeLeft = false),
                   ),
@@ -3120,15 +3241,16 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: mmField('宽度', _wC)),
-              Expanded(child: mmField('边距(墙端)', _offC)),
+              Expanded(child: mmField(t('field_width_full'), _wC)),
+              Expanded(child: mmField(t('margin_wall_end'), _offC)),
             ],
           ),
           const SizedBox(height: 8),
           Row(
             children: [
-              Expanded(child: mmField('离地高度', _sillC, enabled: _kind == OpeningKind.window)),
-              Expanded(child: mmField('洞高', _hC)),
+              Expanded(child: mmField(t('height_from_floor'), _sillC,
+                  enabled: _kind == OpeningKind.window)),
+              Expanded(child: mmField(t('opening_height'), _hC)),
             ],
           ),
           const SizedBox(height: 12),
@@ -3140,9 +3262,9 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
                 foregroundColor: JiajiaColors.accent,
               ),
               onPressed: _apply,
-              child: const Text(
-                '应用',
-                style: TextStyle(fontSize: 13, color: JiajiaColors.accent),
+              child: Text(
+                t('apply'),
+                style: const TextStyle(fontSize: 13, color: JiajiaColors.accent),
               ),
             ),
           ),
@@ -3157,7 +3279,8 @@ class _OpeningDialogState extends ConsumerState<_OpeningDialog> {
                 widget.onApplied?.call();
                 if (context.mounted) Navigator.pop(context);
               },
-              child: const Text('删除该开洞', style: TextStyle(fontSize: 13)),
+              child: Text(t('delete_this_opening'),
+                  style: const TextStyle(fontSize: 13)),
             ),
           ),
         ],
@@ -3269,7 +3392,7 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
   void _apply() {
     final wMm = _parseMm(_wC), dMm = _parseMm(_dC), hMm = _parseMm(_hC);
     if (wMm == null || dMm == null || hMm == null) {
-      _msg('尺寸需 ≥10mm 的整数（单位 mm）');
+      _msg(t('item_size_int_required'));
       return;
     }
     final item = ref.read(editorDocProvider).plan.items[widget.itemId];
@@ -3278,11 +3401,11 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
     final liftMaxMm = _liftMaxMmOf(item);
     final elMm = (isStair || isLift) ? _parseMm0(_elC) : null;
     if ((isStair || isLift) && elMm == null) {
-      _msg('离地高度需 ≥0 的整数（单位 mm）');
+      _msg(t('lift_int_required'));
       return;
     }
     if (isLift && elMm! > liftMaxMm) {
-      _msg('离地高度需在 0..$liftMaxMm mm 之间');
+      _msg(t('lift_range', args: [liftMaxMm]));
       return;
     }
     ref.read(editorDocProvider.notifier).mutate((p) {
@@ -3297,7 +3420,7 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
       if (isLift && elMm != null) it.offFloorMm = elMm;
       it.rotationDeg = _rot;
     });
-    _msg('尺寸/旋转已更新');
+    _msg(t('item_updated'));
     widget.onApplied?.call();
     if (context.mounted) Navigator.pop(context);
   }
@@ -3306,7 +3429,7 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
     ref.read(editorDocProvider.notifier).mutate((p) {
       p.items.remove(widget.itemId);
     });
-    _msg('已删除该件');
+    _msg(t('deleted_item'));
     widget.onApplied?.call();
     if (context.mounted) Navigator.pop(context);
   }
@@ -3315,14 +3438,11 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
   static String _liftHintOf(FurnitureKind k) {
     switch (k) {
       case FurnitureKind.beam:
-        return '梁底相对本层地面（mm，0..6000，±50 步进）；'
-            '梁高在上方「高」里改，2D 占地不变';
+        return t('beam_lift_hint');
       case FurnitureKind.platform:
-        return '台底相对地面（mm，0..3000，±50 步进）；'
-            '台面标高 = 离地 + 高，2D 占地不变';
+        return t('platform_lift_hint');
       default:
-        return '实模底部离地（mm，0..3000，±50 步进）：遮阳棚等吊装件用；'
-            '默认取素材规格（遮阳棚 1500），2D 占地不变';
+        return t('asset_lift_hint');
     }
   }
 
@@ -3348,9 +3468,10 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
   Widget build(BuildContext context) {
     final item = ref.watch(editorDocProvider).plan.items[widget.itemId];
     if (item == null) {
-      return const Padding(
-        padding: EdgeInsets.all(24),
-        child: Text('该件已不存在', style: TextStyle(color: JiajiaColors.text2)),
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(t('item_missing'),
+            style: const TextStyle(color: JiajiaColors.text2)),
       );
     }
     final label = _itemLabelOf(item);
@@ -3370,7 +3491,7 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
             children: [
               Text(
-                '$label · 改尺寸/旋转',
+                t('item_title', args: [label]),
                 style: const TextStyle(
                   color: JiajiaColors.text1,
                   fontSize: 16,
@@ -3380,9 +3501,9 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
               const SizedBox(height: 12),
               Row(
                 children: [
-                  Expanded(child: _mmField('宽', _wC)),
-                  Expanded(child: _mmField('深', _dC)),
-                  Expanded(child: _mmField('高', _hC)),
+                  Expanded(child: _mmField(t('width'), _wC)),
+                  Expanded(child: _mmField(t('field_depth'), _dC)),
+                  Expanded(child: _mmField(t('field_high'), _hC)),
                 ],
               ),
               // v0.1.24：楼梯整体底部离地高度（二楼/错层用）
@@ -3390,14 +3511,15 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Expanded(child: _mmField('离地高度', _elC)),
+                    Expanded(child: _mmField(t('height_from_floor'), _elC)),
                     const Expanded(child: SizedBox()),
                   ],
                 ),
                 const SizedBox(height: 4),
-                const Text(
-                  '楼梯整体底部离地（mm），二楼/错层场景用；默认 0',
-                  style: TextStyle(color: JiajiaColors.text3, fontSize: 11),
+                Text(
+                  t('stair_lift_hint'),
+                  style: const TextStyle(
+                      color: JiajiaColors.text3, fontSize: 11),
                 ),
               ],
               // v0.1.37/v0.1.49：实模/梁/地台的离地高度（写 offFloorMm；
@@ -3412,7 +3534,7 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
                           color: JiajiaColors.accent, size: 20),
                       onPressed: () => _bumpLift(-_liftStepMm),
                     ),
-                    Expanded(child: _mmField('离地高度', _elC)),
+                    Expanded(child: _mmField(t('height_from_floor'), _elC)),
                     IconButton(
                       key: const ValueKey('lift_plus'),
                       icon: const Icon(Icons.add_circle_outline,
@@ -3473,19 +3595,29 @@ class _ItemDialogState extends ConsumerState<_ItemDialog> {
               const SizedBox(height: 12),
               Row(
                 children: [
-                  TextButton.icon(
-                    icon: const Icon(Icons.delete_outline, color: JiajiaColors.accent),
-                    label: const Text('删除该件', style: TextStyle(color: JiajiaColors.accent)),
-                    onPressed: _delete,
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        icon: const Icon(Icons.delete_outline,
+                            color: JiajiaColors.accent),
+                        label: Text(
+                          t('delete_this_item'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: JiajiaColors.accent),
+                        ),
+                        onPressed: _delete,
+                      ),
+                    ),
                   ),
-                  const Spacer(),
                   FilledButton(
                     onPressed: _apply,
                     style: FilledButton.styleFrom(
                       backgroundColor: JiajiaColors.accent,
                       foregroundColor: Colors.white,
                     ),
-                    child: const Text('应用'),
+                    child: Text(t('apply')),
                   ),
                 ],
               ),
@@ -4108,7 +4240,7 @@ class _RoomDialogState extends ConsumerState<_RoomDialog> {
         wMm == null ||
         hMm == null ||
         (_withDoor && dwMm == null)) {
-      setState(() => _err = '长/宽 ≥500mm，高 ≥1000mm，门宽 ≥400mm（单位 mm，整数）');
+      setState(() => _err = t('room_dims_invalid'));
       return;
     }
     final l = fromMm(lMm), w = fromMm(wMm), h = fromMm(hMm);
@@ -4130,7 +4262,11 @@ class _RoomDialogState extends ConsumerState<_RoomDialog> {
     final after = ref.read(editorDocProvider).plan;
     widget.cam.fit(widget.canvasSize, after);
     final messenger = ScaffoldMessenger.maybeOf(context);
-    final note = '已建房间 $lMm×$wMm mm${_withDoor ? '（含门）' : ''}，相机已适配';
+    final note = t('room_created_note', args: [
+      lMm,
+      wMm,
+      _withDoor ? t('with_door_suffix') : '',
+    ]);
     // 建房完成 → 通知父级切回「选择」工具（防误操作，用户不用手动切回）
     // 在 pop 之前回调：父级 setState 先落地，再让面板收起
     widget.onCreated?.call();
@@ -4184,7 +4320,7 @@ class _RoomDialogState extends ConsumerState<_RoomDialog> {
             children: [
               Expanded(
                 child: Text(
-                  '一键建房间',
+                  t('room_dialog_title'),
                   style: const TextStyle(
                     color: JiajiaColors.accent,
                     fontSize: 15,
@@ -4203,15 +4339,15 @@ class _RoomDialogState extends ConsumerState<_RoomDialog> {
             spacing: 6,
             runSpacing: 4,
             children: [
-              _presetChip('卧室 3000×4000', '3000', '4000'),
-              _presetChip('客厅 4500×6000', '4500', '6000'),
-              _presetChip('卫生间 2500×3000', '2500', '3000'),
-              _presetChip('厨房 2400×2100', '2400', '2100'),
+              _presetChip(t('preset_bedroom'), '3000', '4000'),
+              _presetChip(t('preset_living'), '4500', '6000'),
+              _presetChip(t('preset_bath'), '2500', '3000'),
+              _presetChip(t('preset_kitchen'), '2400', '2100'),
             ],
           ),
           const SizedBox(height: 10),
           Text(
-            '尺寸（mm，房间生成在视口中央）',
+            t('room_dims_hint'),
             style: const TextStyle(
               color: JiajiaColors.text2,
               fontSize: 12,
@@ -4220,9 +4356,9 @@ class _RoomDialogState extends ConsumerState<_RoomDialog> {
           ),
           Row(
             children: [
-              Expanded(child: mmField('长', _lC)),
-              Expanded(child: mmField('宽', _wC)),
-              Expanded(child: mmField('高', _hC)),
+              Expanded(child: mmField(t('field_length'), _lC)),
+              Expanded(child: mmField(t('width'), _wC)),
+              Expanded(child: mmField(t('field_high'), _hC)),
             ],
           ),
           const SizedBox(height: 10),
@@ -4232,8 +4368,8 @@ class _RoomDialogState extends ConsumerState<_RoomDialog> {
                 value: _withDoor,
                 onChanged: (v) => setState(() => _withDoor = v ?? false),
               ),
-              const Text('底墙加门'),
-              if (_withDoor) Expanded(child: mmField('门宽', _dwC)),
+              Text(t('bottom_door')),
+              if (_withDoor) Expanded(child: mmField(t('door_width'), _dwC)),
             ],
           ),
           if (_err != null)
@@ -4250,7 +4386,8 @@ class _RoomDialogState extends ConsumerState<_RoomDialog> {
             child: FilledButton.icon(
               onPressed: _create,
               icon: const Icon(Icons.room, size: 18),
-              label: const Text('创建房间', style: TextStyle(fontSize: 14)),
+              label: Text(t('create_room'),
+                  style: const TextStyle(fontSize: 14)),
             ),
           ),
         ],
@@ -4374,17 +4511,17 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
     final nav = Navigator.of(context, rootNavigator: true);
     PlatformFile? file;
     try {
-      file = await ModelFiles.pickModelFile(dialogTitle: '导入模型');
+      file = await ModelFiles.pickModelFile(dialogTitle: t('dlg_import_model'));
     } catch (e) {
       // 平台通道不可用（widget 测试/桌面预览）→ 记日志 + 提示，不崩
       bootLog.error('model-import(furniture): picker failed: ${_errText(e)}');
-      _rootSnack(nav, '打不开文件选择器：${_errText(e)}');
+      _rootSnack(nav, t('picker_failed', args: [_errText(e)]));
       return;
     }
     if (file == null) {
       // 用户取消 或 平台通道把结果丢了：两者屏上都必须可见（旧实现只留一行日志）。
       bootLog.line('model-import(furniture): picker null (user cancel / lost)');
-      _rootSnack(nav, '未选择文件（已取消）');
+      _rootSnack(nav, t('no_file_selected'));
       return;
     }
     final out = await _runModelImportFlow(
@@ -4418,7 +4555,7 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
     try {
       final json = LibModelsCodec.encodeExport(models);
       final saved = await FilePicker.saveFile(
-        dialogTitle: '导出模型库',
+        dialogTitle: t('export_lib'),
         fileName: 'jiajia_models.json',
         bytes: Uint8List.fromList(utf8.encode(json)),
         mimeType: 'application/json',
@@ -4428,11 +4565,11 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
       if (saved == null) return; // 用户取消
       final where = PlanIo.displayLocation(saved, 'jiajia_models.json');
       _snack(models.isEmpty
-          ? '模型库为空：已导出 0 条（可导入到其他设备累积）→ $where'
-          : '已导出 ${models.length} 条模型 → $where');
+          ? t('lib_empty', args: [where])
+          : t('lib_exported', args: [models.length, where]));
     } catch (e) {
       if (mounted) setState(() => _busy = false);
-      _snack('导出失败：${_errText(e)}');
+      _snack(t('export_failed_reason', args: [_errText(e)]));
     }
   }
 
@@ -4441,12 +4578,12 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
     PlatformFile? file;
     try {
       file = await FilePicker.pickFile(
-        dialogTitle: '导入模型库',
+        dialogTitle: t('import_lib'),
         type: FileType.custom,
         allowedExtensions: const ['json'],
       );
     } catch (e) {
-      _snack('打不开文件选择器：${_errText(e)}');
+      _snack(t('picker_failed', args: [_errText(e)]));
       return;
     }
     if (file == null) return;
@@ -4458,7 +4595,7 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
       _snack(e.message);
       return;
     } catch (e) {
-      _snack('读取模型库失败：${_errText(e)}');
+      _snack(t('lib_read_failed', args: [_errText(e)]));
       return;
     }
     setState(() => _busy = true);
@@ -4471,11 +4608,13 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
         _libs = merged.models;
         _busy = false;
       });
-      final tail = payload.invalid > 0 ? '，${payload.invalid} 条无效' : '';
-      _snack('导入 ${merged.added} 条，跳过 ${merged.skipped} 条重复$tail');
+      final tail = payload.invalid > 0
+        ? t('lib_invalid_suffix', args: [payload.invalid])
+        : '';
+      _snack(t('lib_imported', args: [merged.added, merged.skipped, tail]));
     } catch (e) {
       if (mounted) setState(() => _busy = false);
-      _snack('导入失败：${_errText(e)}');
+      _snack(t('import_failed_reason', args: [_errText(e)]));
     }
   }
 
@@ -4510,9 +4649,9 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
       );
       final where = await ModelExport.save(item);
       if (where == null || !mounted) return;
-      _snack('已导出「${item.name}」单件模型 → $where');
+      _snack(t('single_exported', args: [item.name, where]));
     } catch (e) {
-      _snack('导出失败：${_errText(e)}');
+      _snack(t('export_failed_reason', args: [_errText(e)]));
     }
   }
 
@@ -4529,9 +4668,9 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
       );
       final where = await ModelExport.save(item);
       if (where == null || !mounted) return;
-      _snack('已导出「${item.name}」单件模型（占位盒）→ $where');
+      _snack(t('single_exported_box', args: [item.name, where]));
     } catch (e) {
-      _snack('导出失败：${_errText(e)}');
+      _snack(t('export_failed_reason', args: [_errText(e)]));
     }
   }
 
@@ -4563,9 +4702,9 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
     try {
       final where = await ModelExport.save(ModelExport.forLib(m));
       if (where == null || !mounted) return;
-      _snack('已导出「${m.name}」单件模型 → $where');
+      _snack(t('single_exported', args: [m.name, where]));
     } catch (e) {
-      _snack('导出失败：${_errText(e)}');
+      _snack(t('export_failed_reason', args: [_errText(e)]));
     }
   }
 
@@ -4582,17 +4721,17 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
           borderRadius: BorderRadius.circular(10),
           border: Border.all(color: JiajiaColors.line),
         ),
-        child: const Column(
+        child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.add_circle_outline,
+            const Icon(Icons.add_circle_outline,
                 color: JiajiaColors.accent, size: 26),
-            SizedBox(height: 4),
+            const SizedBox(height: 4),
             Text(
-              '导入模型…',
-              style: TextStyle(color: JiajiaColors.text1, fontSize: 12),
+              t('import_model_ellipsis'),
+              style: const TextStyle(color: JiajiaColors.text1, fontSize: 12),
             ),
-            Text('OBJ / JSON',
+            const Text('OBJ / JSON',
                 style: TextStyle(color: JiajiaColors.text2, fontSize: 9)),
           ],
         ),
@@ -4639,7 +4778,8 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
             children: [
               Expanded(
                 child: Text(
-                  '家具 · $_cat（$total 件）',
+                  t('furniture_header',
+                      args: [FurnitureTabs.catLabel(_cat), total]),
                   style: const TextStyle(
                     color: JiajiaColors.text1,
                     fontSize: 14,
@@ -4652,24 +4792,31 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
                   Navigator.pop(context);
                   widget.onBack();
                 },
-                child: const Text('← 模块', style: TextStyle(fontSize: 12)),
+                child: Text(t('back_to_module'), style: const TextStyle(fontSize: 12)),
               ),
             ],
           ),
-          Row(
-            children: [
-              _headerButton('导出模型库', Icons.ios_share, _busy ? null : _exportLib),
-              const SizedBox(width: 4),
-              _headerButton('导入模型库', Icons.file_download,
-                  _busy ? null : _importLibFile),
-              const Spacer(),
-              if (_busy)
-                const SizedBox(
-                  width: 12,
-                  height: 12,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-            ],
+          // 英文按钮更长：整行横向可滚，避免 360 宽硬溢出
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _headerButton(t('export_lib'), Icons.ios_share,
+                    _busy ? null : _exportLib),
+                const SizedBox(width: 4),
+                _headerButton(t('import_lib'), Icons.file_download,
+                    _busy ? null : _importLibFile),
+                if (_busy)
+                  const Padding(
+                    padding: EdgeInsets.only(left: 8),
+                    child: SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+              ],
+            ),
           ),
           const SizedBox(height: 4),
           Wrap(
@@ -4678,7 +4825,8 @@ class _FurnitureTabSheetState extends State<_FurnitureTabSheet> {
             children: [
               for (final cat in FurnitureTabs.cats)
                 ChoiceChip(
-                  label: Text(cat, style: const TextStyle(fontSize: 12)),
+                  label: Text(FurnitureTabs.catLabel(cat),
+                      style: const TextStyle(fontSize: 12)),
                   selected: _cat == cat,
                   onSelected: (_) => setState(() => _cat = cat),
                 ),
@@ -4842,11 +4990,13 @@ class _LibModelDialogState extends State<_LibModelDialog> {
   /// 改为对话框内常驻红字 + 「入库」置灰。
   List<String> get _errors {
     final errs = <String>[];
-    if (_nameC.text.trim().isEmpty) errs.add('名称不能为空');
+    if (_nameC.text.trim().isEmpty) errs.add(t('name_required'));
     const dims = [('W', 0), ('D', 1), ('H', 2)];
     final cs = [_wC, _dC, _hC];
     for (final (label, i) in dims) {
-      if (_mm(cs[i]) == null) errs.add('$label 需在 1~50000mm，或改单位');
+      if (_mm(cs[i]) == null) {
+        errs.add(t('dim_range', args: [label]));
+      }
     }
     return errs;
   }
@@ -4899,8 +5049,8 @@ class _LibModelDialogState extends State<_LibModelDialog> {
     final canSubmit = errors.isEmpty;
     return AlertDialog(
       backgroundColor: JiajiaColors.surface,
-      title: const Text(
-        '导入模型',
+      title: Text(
+        t('dlg_import_model'),
         style: TextStyle(color: JiajiaColors.text1, fontSize: 16),
       ),
       content: SingleChildScrollView(
@@ -4912,17 +5062,17 @@ class _LibModelDialogState extends State<_LibModelDialog> {
               controller: _nameC,
               maxLength: 40,
               style: const TextStyle(color: JiajiaColors.text1, fontSize: 13),
-              decoration: const InputDecoration(
-                labelText: '名称',
-                labelStyle: TextStyle(color: JiajiaColors.text3),
+              decoration: InputDecoration(
+                labelText: t('field_name'),
+                labelStyle: const TextStyle(color: JiajiaColors.text3),
                 isDense: true,
               ),
             ),
             const SizedBox(height: 2),
             Text(
               widget.units.isEmpty
-                  ? '${widget.faceCount} 个面 · 尺寸取自 OBJ 包围盒（可改）'
-                  : '${widget.faceCount} 个面 · 尺寸 = 包围盒 × 原文件单位（可改）',
+                  ? t('faces_from_obj', args: [widget.faceCount])
+                  : t('faces_scaled', args: [widget.faceCount]),
               style: const TextStyle(color: JiajiaColors.text3, fontSize: 10),
             ),
             if (widget.note != null)
@@ -4954,7 +5104,7 @@ class _LibModelDialogState extends State<_LibModelDialog> {
             if (widget.subCats.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(
-                '家具分类（$_cat）',
+                t('furniture_category', args: [FurnitureTabs.catLabel(_cat)]),
                 style: const TextStyle(color: JiajiaColors.text3, fontSize: 10),
               ),
               const SizedBox(height: 4),
@@ -4975,7 +5125,7 @@ class _LibModelDialogState extends State<_LibModelDialog> {
             // 原文件单位（v0.1.45）：只有 OBJ 导入路径传 units；JSON 路径空 → 不显示。
             if (widget.units.isNotEmpty) ...[
               Text(
-                '原文件单位',
+                t('source_unit'),
                 style: const TextStyle(color: JiajiaColors.text3, fontSize: 10),
               ),
               const SizedBox(height: 4),
@@ -5026,15 +5176,16 @@ class _LibModelDialogState extends State<_LibModelDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('取消', style: TextStyle(color: JiajiaColors.text2)),
+          child: Text(t('cancel'),
+              style: const TextStyle(color: JiajiaColors.text2)),
         ),
         FilledButton(
           // 任一维度/名称非法 → 置灰（onPressed:null 即 M3 禁用态），
           // 用户永远看得见为什么不能入库（v0.1.45 取代 4 秒 snack）。
           onPressed: canSubmit ? _ok : null,
-          child: const Text(
-            '入库',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          child: Text(
+            t('stock_in'),
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
           ),
         ),
       ],
@@ -5052,7 +5203,7 @@ String _baseNameOf(String name) {
   final dot = base.lastIndexOf('.');
   if (dot > 0) base = base.substring(0, dot);
   base = base.trim();
-  return base.isEmpty ? '库模型' : base;
+  return base.isEmpty ? t('lib_model') : base;
 }
 
 /// 异常文本截断（平台异常可能带一大段通道信息，SnackBar 只看前 80 字）。
@@ -5091,11 +5242,11 @@ void _rootSnack(NavigatorState nav, String m) {
 String _importResultText(_ModelImportOutcome out) {
   switch (out.status) {
     case ModelImportStatus.added:
-      return '已导入「${out.model?.name ?? ''}」';
+      return t('imported_named_quoted', args: [out.model?.name ?? '']);
     case ModelImportStatus.duplicate:
-      return '已在库中：${out.model?.name ?? ''}（id 重复，已跳过）';
+      return t('already_in_lib', args: [out.model?.name ?? '']);
     case ModelImportStatus.rejected:
-      return out.message ?? '导入失败';
+      return out.message ?? t('import_failed');
   }
 }
 
@@ -5132,7 +5283,7 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
   final tag = menu.isEmpty ? cat : menu;
   // 选完文件立刻上屏一条：「选择器到底有没有返回文件」一眼可判 ——
   // 有这句 = 卡在解析/入库；没这句 = 卡在选文件之前（平台通道/ROM）。
-  _rootSnack(nav, '正在导入「${file.name}」…');
+  _rootSnack(nav, t('importing_file', args: [file.name]));
   bootLog.line('model-import($tag): picked ${file.name}');
 
   String text;
@@ -5142,7 +5293,7 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
     bootLog.error('model-import($tag): read failed: ${_shortErr(e)}');
     return _ModelImportOutcome(
       ModelImportStatus.rejected,
-      message: '读取文件失败：${_shortErr(e)}',
+      message: t('read_file_failed', args: [_shortErr(e)]),
     );
   }
 
@@ -5161,7 +5312,7 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
       bootLog.error('model-import($tag): json decode failed: ${_shortErr(e)}');
       return _ModelImportOutcome(
         ModelImportStatus.rejected,
-        message: '单模型 JSON 解析失败：${_shortErr(e)}',
+        message: t('single_json_parse_failed', args: [_shortErr(e)]),
       );
     }
     try {
@@ -5199,7 +5350,7 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
       bootLog.error('model-import($tag): json add failed: ${_shortErr(e)}');
       return _ModelImportOutcome(
         ModelImportStatus.rejected,
-        message: '入库失败：${_shortErr(e)}',
+        message: t('store_failed', args: [_shortErr(e)]),
       );
     }
   }
@@ -5215,7 +5366,7 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
     bootLog.error('model-import($tag): obj parse failed: ${_shortErr(e)}');
     return _ModelImportOutcome(
       ModelImportStatus.rejected,
-      message: 'OBJ 解析失败：${_shortErr(e)}',
+      message: t('obj_parse_failed', args: [_shortErr(e)]),
     );
   }
 
@@ -5232,14 +5383,14 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
       bootLog.error('model-import($tag): decimate failed: ${_shortErr(e)}');
       return _ModelImportOutcome(
         ModelImportStatus.rejected,
-        message: '自动压缩失败：${_shortErr(e)}',
+        message: t('decimate_failed', args: [_shortErr(e)]),
       );
     }
     if (dec.toFaces == 0) {
       bootLog.error('model-import($tag): decimated to 0 faces (${file.name})');
       return _ModelImportOutcome(
         ModelImportStatus.rejected,
-        message: '压缩后模型退化（0 面），请先在电脑上减面',
+        message: t('decimate_degenerate'),
       );
     }
     try {
@@ -5250,8 +5401,8 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
       );
       return _ModelImportOutcome(
         ModelImportStatus.rejected,
-        message:
-            '压缩后仍超限（${dec.toFaces} 面/${_kbOf(dec.objText)} KB），请先在电脑上减面',
+        message: t('decimate_over_limit',
+            args: [dec.toFaces, _kbOf(dec.objText)]),
       );
     }
     bootLog.line(
@@ -5291,7 +5442,9 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
         subCats: cat == ModelLeaves.furniture ? FurnitureTabs.cats : const [],
         initialSubCat: subCat,
         // 减面过的模型在对话框里明示（未减面 → null，旧观感不变）
-        note: decTo > 0 ? '面数较大，已自动压缩 $decFrom → $decTo' : null,
+        note: decTo > 0
+            ? t('decimate_note', args: [decFrom, decTo])
+            : null,
         // 原文件单位（v0.1.45）：OBJ 路径才有。预检规则见 ImportUnits.autoPick —
         // 三边都在 50000 内 → 米；超了就在 dm/cm/mm 里挑**最大**的能过闸单位
         // （japaneseMaple 790330cm 文件 → 0.1 档 79033 仍超 → 落到 cm）；
@@ -5309,7 +5462,7 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
   if (draft == null) {
     // 用户关掉命名对话框：root messenger 给一句可见提示（sheet 若已关也不影响）。
     bootLog.line('model-import($tag): dialog dismissed (cancel)');
-    _rootSnack(nav, '已取消导入');
+    _rootSnack(nav, t('import_cancelled'));
     return null;
   }
   final id = LibModel.newImportId(baseName);
@@ -5330,7 +5483,7 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
       );
       return _ModelImportOutcome(
         ModelImportStatus.rejected,
-        message: '换算后仍超限（${_kbOf(objText)} KB），请先在电脑上减面',
+        message: t('scaled_over_limit', args: [_kbOf(objText)]),
       );
     }
     bootLog.line(
@@ -5369,7 +5522,7 @@ Future<_ModelImportOutcome?> _runModelImportFlow({
     bootLog.error('model-import($tag): add failed: ${_shortErr(e)}');
     return _ModelImportOutcome(
       ModelImportStatus.rejected,
-      message: '入库失败：${_shortErr(e)}',
+      message: t('store_failed', args: [_shortErr(e)]),
     );
   }
 }
@@ -5416,7 +5569,7 @@ Future<_ModelImportOutcome> _autoImportObj({
     bootLog.error('model-import($tag): auto failed ($baseName): ${_shortErr(e)}');
     return _ModelImportOutcome(
       ModelImportStatus.rejected,
-      message: '入库失败：${_shortErr(e)}',
+      message: t('store_failed', args: [_shortErr(e)]),
     );
   }
 }
@@ -5448,15 +5601,15 @@ class _ModelImportTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(10),
           border: Border.all(color: JiajiaColors.line),
         ),
-        child: const Column(
+        child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.add_circle_outline,
+            const Icon(Icons.add_circle_outline,
                 color: JiajiaColors.accent, size: 26),
-            SizedBox(height: 4),
+            const SizedBox(height: 4),
             Text(
-              '导入模型…',
-              style: TextStyle(color: JiajiaColors.text1, fontSize: 12),
+              t('import_model_ellipsis'),
+              style: const TextStyle(color: JiajiaColors.text1, fontSize: 12),
             ),
             Text(
               'OBJ / JSON',
@@ -5521,15 +5674,15 @@ class _ModelMenuSheetState extends State<_ModelMenuSheet> {
     final nav = Navigator.of(context, rootNavigator: true);
     PlatformFile? file;
     try {
-      file = await ModelFiles.pickModelFile(dialogTitle: '导入模型');
+      file = await ModelFiles.pickModelFile(dialogTitle: t('dlg_import_model'));
     } catch (e) {
       bootLog.error('model-import(${widget.cat}): picker failed: ${_shortErr(e)}');
-      _rootSnack(nav, '打不开文件选择器：${_shortErr(e)}');
+      _rootSnack(nav, t('picker_failed', args: [_shortErr(e)]));
       return;
     }
     if (file == null) {
       bootLog.line('model-import(${widget.cat}): picker null (user cancel / lost)');
-      _rootSnack(nav, '未选择文件（已取消）');
+      _rootSnack(nav, t('no_file_selected'));
       return;
     }
     if (mounted) setState(() => _busy = true);
@@ -5557,9 +5710,9 @@ class _ModelMenuSheetState extends State<_ModelMenuSheet> {
       );
       final where = await ModelExport.save(item);
       if (where == null || !mounted) return;
-      _snackOf(context, '已导出「${item.name}」单件模型 → $where');
+      _snackOf(context, t('single_exported', args: [item.name, where]));
     } catch (e) {
-      _snackOf(context, '导出失败：${_shortErr(e)}');
+      _snackOf(context, t('export_failed_reason', args: [_shortErr(e)]));
     }
   }
 
@@ -5567,9 +5720,9 @@ class _ModelMenuSheetState extends State<_ModelMenuSheet> {
     try {
       final where = await ModelExport.save(ModelExport.forLib(m));
       if (where == null || !mounted) return;
-      _snackOf(context, '已导出「${m.name}」单件模型 → $where');
+      _snackOf(context, t('single_exported', args: [m.name, where]));
     } catch (e) {
-      _snackOf(context, '导出失败：${_shortErr(e)}');
+      _snackOf(context, t('export_failed_reason', args: [_shortErr(e)]));
     }
   }
 
@@ -5596,7 +5749,8 @@ class _ModelMenuSheetState extends State<_ModelMenuSheet> {
             children: [
               Expanded(
                 child: Text(
-                  '${widget.cat} · 素材（$total 件）',
+                  t('cat_assets_header',
+                      args: [ModelItems.categoryLabel(widget.cat), total]),
                   style: const TextStyle(
                     color: JiajiaColors.text1,
                     fontSize: 14,
@@ -5609,14 +5763,14 @@ class _ModelMenuSheetState extends State<_ModelMenuSheet> {
                 onPressed: _busy ? null : _import,
                 icon: const Icon(Icons.add, size: 14,
                     color: JiajiaColors.accent),
-                label: const Text('导入', style: TextStyle(fontSize: 12)),
+                label: Text(t('import'), style: const TextStyle(fontSize: 12)),
               ),
               TextButton(
                 onPressed: () {
                   Navigator.pop(context);
                   widget.onBack();
                 },
-                child: const Text('← 模块', style: TextStyle(fontSize: 12)),
+                child: Text(t('back_to_module'), style: const TextStyle(fontSize: 12)),
               ),
             ],
           ),
@@ -5678,7 +5832,12 @@ class _ModelMenuSheetState extends State<_ModelMenuSheet> {
             const Divider(height: 1, color: JiajiaColors.line),
             const SizedBox(height: 6),
             Text(
-              '3D 素材署名：${widget.items.where((m) => m.credit != null).map((m) => '${m.label} — ${m.credit}').join('；')}',
+              t('credit_line', args: [
+                widget.items
+                    .where((m) => m.credit != null)
+                    .map((m) => '${m.label} — ${m.credit}')
+                    .join('；'),
+              ]),
               style: const TextStyle(color: JiajiaColors.text2, fontSize: 9),
             ),
           ],
@@ -5738,15 +5897,15 @@ class _UserAssetsSheetState extends State<_UserAssetsSheet> {
     final nav = Navigator.of(context, rootNavigator: true);
     PlatformFile? file;
     try {
-      file = await ModelFiles.pickModelFile(dialogTitle: '导入用户素材');
+      file = await ModelFiles.pickModelFile(dialogTitle: t('dlg_import_user_assets'));
     } catch (e) {
       bootLog.error('model-import(userAssets): picker failed: ${_shortErr(e)}');
-      _rootSnack(nav, '打不开文件选择器：${_shortErr(e)}');
+      _rootSnack(nav, t('picker_failed', args: [_shortErr(e)]));
       return;
     }
     if (file == null) {
       bootLog.line('model-import(userAssets): picker null (user cancel / lost)');
-      _rootSnack(nav, '未选择文件（已取消）');
+      _rootSnack(nav, t('no_file_selected'));
       return;
     }
     if (mounted) setState(() => _busy = true);
@@ -5768,9 +5927,9 @@ class _UserAssetsSheetState extends State<_UserAssetsSheet> {
     try {
       final where = await ModelExport.save(ModelExport.forLib(m));
       if (where == null || !mounted) return;
-      _snackOf(context, '已导出「${m.name}」单件模型 → $where');
+      _snackOf(context, t('single_exported', args: [m.name, where]));
     } catch (e) {
-      _snackOf(context, '导出失败：${_shortErr(e)}');
+      _snackOf(context, t('export_failed_reason', args: [_shortErr(e)]));
     }
   }
 
@@ -5790,7 +5949,7 @@ class _UserAssetsSheetState extends State<_UserAssetsSheet> {
             children: [
               Expanded(
                 child: Text(
-                  '用户素材（${libs.length} 件）',
+                  t('user_assets_header', args: [libs.length]),
                   style: const TextStyle(
                     color: JiajiaColors.text1,
                     fontSize: 14,
@@ -5803,14 +5962,14 @@ class _UserAssetsSheetState extends State<_UserAssetsSheet> {
                 onPressed: _busy ? null : _import,
                 icon: const Icon(Icons.add, size: 14,
                     color: JiajiaColors.accent),
-                label: const Text('导入', style: TextStyle(fontSize: 12)),
+                label: Text(t('import'), style: const TextStyle(fontSize: 12)),
               ),
               TextButton(
                 onPressed: () {
                   Navigator.pop(context);
                   widget.onBack();
                 },
-                child: const Text('← 模块', style: TextStyle(fontSize: 12)),
+                child: Text(t('back_to_module'), style: const TextStyle(fontSize: 12)),
               ),
             ],
           ),

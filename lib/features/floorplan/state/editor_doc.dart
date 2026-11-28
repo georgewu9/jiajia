@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import '../domain/floor_plan.dart';
+import '../../../app/i18n.dart';
 
 /// 编辑器文档：当前户型 + 撤销/重做栈（存 JSON 快照，模型小，够用）。
 class EditorDoc {
@@ -205,14 +206,14 @@ class PlanStore {
   /// 「已有同名户型」），绝不覆盖别人的文件。同名改（只清洗/大小写变化）允许。
   Future<void> rename(PlanEntry e, String newName) async {
     final raw = newName.trim();
-    if (raw.isEmpty) throw PlanRenameException('户型名不能为空');
+    if (raw.isEmpty) throw PlanRenameException(t('plan_name_empty'));
     final clean = sanitizeName(raw);
     final dir = await _dir();
     final src = File(e.path);
     final target = File('${dir.path}/$clean.json');
     final sameFile = target.path == src.path;
     if (!sameFile && await target.exists()) {
-      throw PlanRenameException('已有同名户型');
+      throw PlanRenameException(t('plan_name_duplicate'));
     }
     final plan = FloorPlan.fromJsonString(await src.readAsString());
     plan.name = clean;

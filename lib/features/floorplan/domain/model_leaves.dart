@@ -7,6 +7,7 @@
 // 「无分类」语义（用户素材菜单）：cat 为空、等于「用户素材」、或不是任何
 // 已知叶子分类的用户模型都归这里——v0.1.37 及以前导入的老条目 cat 写的是
 // 卧室/书房/厨房…（旧家具分类，不是叶子分类），因此全部落进「用户素材」。
+import '../../../app/i18n.dart';
 import 'model_items.dart';
 
 class ModelLeaves {
@@ -32,6 +33,23 @@ class ModelLeaves {
     courtyard,
     userAssets,
   ];
+
+  static const Map<String, String> _labelKeys = {
+    door: 'leaf_door',
+    window: 'leaf_window',
+    columnBeam: 'leaf_column_beam',
+    stair: 'leaf_stair',
+    specialWallWindow: 'leaf_special',
+    furniture: 'leaf_furniture',
+    courtyard: 'leaf_courtyard',
+    userAssets: 'leaf_user_assets',
+  };
+
+  /// 叶子分类的显示名（按当前语言）；未知值原样返回（用户模型分类兜底）。
+  static String labelOf(String leaf) {
+    final k = _labelKeys[leaf];
+    return k == null ? leaf : t(k);
+  }
 
   static bool contains(String? cat) => cat != null && all.contains(cat);
 

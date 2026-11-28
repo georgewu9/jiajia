@@ -1,14 +1,17 @@
 // 原 app（家易量）「模型」模块复刻：门/窗/柱/楼梯/台面五金 五类。
 // 图标取自原 apk `static/images/draw/`（见 assets/models2d/）。
 // 放置规则：门/窗=贴墙开洞（wall），柱/楼梯/台面/五金=平面摆放（floor）。
+import '../../../app/i18n.dart';
 import 'floor_plan.dart';
 
 enum ModelPlace { wall, floor }
 
 class ModelSpec {
   final String id;
-  final String category; // 门/窗/柱/楼梯/台面五金/特殊墙窗
-  final String label;
+  final String category; // 门/窗/柱/楼梯/台面五金/特殊墙窗（数据键，保持中文）
+
+  /// 中文原名：序列化 / 旧数据回退用；UI 显示走 [label]（按当前语言取词）。
+  final String labelZh;
   final String? icon; // assets/models2d/icon_*.png|jpeg；null = 无原 app 图标（用占位图标）
   final ModelPlace place;
 
@@ -42,7 +45,7 @@ class ModelSpec {
   const ModelSpec({
     required this.id,
     required this.category,
-    required this.label,
+    required String label,
     this.icon,
     required this.place,
     this.kind = OpeningKind.door,
@@ -58,13 +61,18 @@ class ModelSpec {
     this.specHmm,
     this.offFloorMm,
     this.credit,
-  });
+  }) : labelZh = label;
+
+  /// 显示名：词表 `model_<id>` 优先，缺词回退中文原名（导入的外来条目）。
+  String get label => t('model_$id', zhText: labelZh);
 
   String get specText {
     if (place == ModelPlace.wall) {
-      final label = noLeaf ? '洞口' : (kind == OpeningKind.door ? doorType.label : '窗');
-      final s = sillMm > 0 ? ' 台$sillMm' : '';
-      return '$label $defaultWmm×$heightMm$s';
+      final l = noLeaf
+          ? t('spec_doorway')
+          : (kind == OpeningKind.door ? doorType.label : t('spec_window'));
+      final s = sillMm > 0 ? t('spec_sill', args: [sillMm]) : '';
+      return '$l $defaultWmm×$heightMm$s';
     }
     if (specWmm != null) return '$specWmm×$specDmm×$specHmm';
     final k = floorKind;
@@ -77,7 +85,7 @@ class ModelSpec {
   Map<String, dynamic> toJson() => {
         'id': id,
         'cat': category,
-        'label': label,
+        'label': labelZh,
         if (icon != null) 'icon': icon,
         'place': place.name,
         'kind': kind.name,
@@ -131,6 +139,25 @@ class ModelSpec {
 
 class ModelItems {
   const ModelItems._();
+
+  /// 目录分类的中文键 → 词表 key（显示用；数据键本身保持中文）。
+  static const Map<String, String> _catKeys = {
+    '门': 'cat_door',
+    '窗': 'cat_window',
+    '柱': 'cat_pillar',
+    '梁': 'cat_beam',
+    '楼梯': 'cat_stair',
+    '台面/五金': 'cat_counter',
+    '特殊墙窗': 'cat_special',
+    '庭院': 'cat_courtyard',
+    '家具': 'cat_furniture',
+  };
+
+  /// 分类显示名（按当前语言）。未知分类原样返回。
+  static String categoryLabel(String c) {
+    final k = _catKeys[c];
+    return k == null ? c : t(k);
+  }
 
   static const categories = [
     '门',

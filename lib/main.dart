@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'app/i18n.dart';
 import 'app/theme.dart';
 import 'diag/boot_log.dart' show bootLog;
 import 'features/floorplan/domain/floor_plan.dart';
@@ -15,10 +16,10 @@ import 'features/viewer3d/viewer3d_page.dart';
 
 /// 当前包版本（与 pubspec 同步发布；启动日志首行写它，
 /// 用户截图日志即可确认装的是哪个包 —— 不用翻设置页）。
-const String kAppVersion = '1.0.49';
+const String kAppVersion = '1.0.50';
 
 /// jiajia：画户型 → 摆家具 → 3D 浏览。
-void main() {
+Future<void> main() async {
   // 外部原始探针：/sdcard/Android/data/com.georgewu.jiajia/files/jiajia_diag.txt
   // 系统在进程启动时就建好该目录（无需权限、不依赖 path_provider），
   // main() 第一行就能写；Kotlin Application 写同一文件 → 切分 NATIVE/DART 两层。
@@ -40,6 +41,9 @@ void main() {
   try {
     WidgetsFlutterBinding.ensureInitialized();
     bootLog.line('binding-init');
+    // 恢复上次选择的界面语言（shared_preferences；无插件环境静默回退中文）
+    await AppI18n.load();
+    bootLog.line('lang-restored: ${AppI18n.lang}');
     getApplicationDocumentsDirectory()
         .then((dir) {
           bootLog.attach(File('${dir.path}/jiajia_boot.log'));
@@ -100,7 +104,7 @@ class _ErrorRootState extends State<ErrorRoot> {
           builder: (context, text, _) {
             if (text == null) return const SizedBox.shrink();
             return _DiagnosticScreen(
-              title: '⚠ 运行异常 / 启动记录（截图发我即可定位）',
+              title: t('diag_error_title'),
               content: text,
               onClose: () => widget.panel.value = null,
             );
@@ -132,7 +136,7 @@ class _ErrorRootState extends State<ErrorRoot> {
         ),
         if (_showDiag)
           _DiagnosticScreen(
-            title: '启动诊断（长按文本可复制；截图发我）',
+            title: t('diag_start_title'),
             content: bootLog.panelText(liveError: widget.panel.value),
             onClose: () => setState(() => _showDiag = false),
           ),
@@ -254,10 +258,10 @@ class _DiagnosticScreen extends StatelessWidget {
                 const SizedBox(height: 10),
                 Row(
                   children: [
-                    const Expanded(
+                    Expanded(
                       child: Text(
-                        '点空白处或右上角 ✕ 也可关闭',
-                        style: TextStyle(
+                        t('diag_close_hint'),
+                        style: const TextStyle(
                           fontSize: 11,
                           color: JiajiaColors.text3,
                         ),
@@ -270,9 +274,9 @@ class _DiagnosticScreen extends StatelessWidget {
                       key: const ValueKey('diag_close_btn'),
                       onPressed: onClose,
                       icon: const Icon(Icons.close, size: 18),
-                      label: const Text(
-                        '关闭',
-                        style: TextStyle(
+                      label: Text(
+                        t('close'),
+                        style: const TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
                         ),
@@ -312,12 +316,14 @@ class PlansRouteObserver extends RouteObserver<PageRoute> {
 
 final plansRouteObserver = PlansRouteObserver();
 
-class JiajiaApp extends StatelessWidget {
+class JiajiaApp extends ConsumerWidget {
   const JiajiaApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     bootLog.line('JiajiaApp-built');
+    // 监听语言：切 中/EN 时整棵树（含当前路由页）按新语言重建。
+    ref.watch(languageProvider);
     return MaterialApp(
       title: 'jiajia',
       theme: JiajiaTheme.light,
@@ -330,17 +336,17 @@ class JiajiaApp extends StatelessWidget {
 /// 初始落地页：纯标准 Material widget（无 CustomPainter / 无 WebView），
 /// 保证 release 下一定能画出来；户型编辑 / 3D 全部按需路由进入。
 /// 含「我的户型」：打开/删除已保存的方案（本地 plans/*.json）。
-class LandingPage extends StatefulWidget {
+class LandingPage extends ConsumerStatefulWidget {
   const LandingPage({super.key, this.store});
 
   /// 可注入的存储（单测传临时目录）；生产走默认 app 文档目录。
   final PlanStore? store;
 
   @override
-  State<LandingPage> createState() => LandingPageState();
+  ConsumerState<LandingPage> createState() => LandingPageState();
 }
 
-class LandingPageState extends State<LandingPage> {
+class LandingPageState extends ConsumerState<LandingPage> {
   late final PlanStore _store = widget.store ?? PlanStore();
   List<PlanEntry> _plans = const [];
   bool _loading = true;
@@ -385,15 +391,15 @@ class LandingPageState extends State<LandingPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        title: Text('删除「${e.name}」？'),
-        content: const Text('户型、门窗洞和家具摆放都会一并删除，不可恢复。'),
+        title: Text(t('delete_plan_title', args: [e.name])),
+        content: Text(t('delete_plan_body')),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(c, false),
-              child: const Text('取消')),
+              child: Text(t('cancel'))),
           FilledButton(
               onPressed: () => Navigator.pop(c, true),
-              child: const Text('删除')),
+              child: Text(t('delete'))),
         ],
       ),
     );
@@ -412,12 +418,12 @@ class LandingPageState extends State<LandingPage> {
       if (saved == null) return; // 用户取消：不提示
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('已导出到 ${PlanIo.displayLocation(saved, name)}'),
+        content: Text(t('exported_to', args: [PlanIo.displayLocation(saved, name)])),
       ));
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('导出失败')));
+          .showSnackBar(SnackBar(content: Text(t('export_failed'))));
     }
   }
 
@@ -459,11 +465,11 @@ class LandingPageState extends State<LandingPage> {
       await _refresh();
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已导入 ${plan.name}')));
+          SnackBar(content: Text(t('imported_named', args: [plan.name]))));
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('导入失败：文件不是有效户型')));
+          SnackBar(content: Text(t('import_failed_invalid'))));
     }
   }
 
@@ -474,24 +480,24 @@ class LandingPageState extends State<LandingPage> {
       context: context,
       builder: (c) => AlertDialog(
         backgroundColor: JiajiaColors.surface,
-        title: const Text('重命名户型',
-            style: TextStyle(color: JiajiaColors.text1, fontSize: 16)),
+        title: Text(t('rename_plan_title'),
+            style: const TextStyle(color: JiajiaColors.text1, fontSize: 16)),
         content: TextField(
           controller: controller,
           autofocus: true,
           maxLength: 40,
           style: const TextStyle(color: JiajiaColors.text1, fontSize: 14),
-          decoration: const InputDecoration(labelText: '户型名'),
+          decoration: InputDecoration(labelText: t('plan_name_label')),
         ),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(c),
-              child:
-                  const Text('取消', style: TextStyle(color: JiajiaColors.text2))),
+              child: Text(t('cancel'),
+                  style: const TextStyle(color: JiajiaColors.text2))),
           FilledButton(
             onPressed: () => Navigator.pop(c, controller.text),
-            child: const Text('确定',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            child: Text(t('ok'),
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
           ),
         ],
       ),
@@ -503,7 +509,9 @@ class LandingPageState extends State<LandingPage> {
       if (!context.mounted) return;
       final clean = PlanStore.sanitizeName(name);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(clean == name.trim() ? '已重命名' : '已重命名为 $clean（已清洗非法字符）'),
+        content: Text(clean == name.trim()
+            ? t('renamed')
+            : t('renamed_clean', args: [clean])),
       ));
     } on PlanRenameException catch (ex) {
       if (!context.mounted) return;
@@ -512,7 +520,7 @@ class LandingPageState extends State<LandingPage> {
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('重命名失败')));
+          .showSnackBar(SnackBar(content: Text(t('rename_failed'))));
     }
   }
 
@@ -524,14 +532,15 @@ class LandingPageState extends State<LandingPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(languageProvider); // 切 中/EN → 封面文案即时重建
     bootLog.line('LandingPage-built');
     final plansSection = _loading
-        ? const Text('读取已存户型…',
-            style: TextStyle(fontSize: 13, color: JiajiaColors.text2))
+        ? Text(t('loading_plans'),
+            style: const TextStyle(fontSize: 13, color: JiajiaColors.text2))
         : _plans.isEmpty
-            ? const Text('还没有保存的户型。画完点编辑器右上角「保存」就会出现在这里。',
+            ? Text(t('plans_empty'),
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 13, color: JiajiaColors.text2))
+                style: const TextStyle(fontSize: 13, color: JiajiaColors.text2))
             : Column(
                 children: [
                   for (final e in _plans)
@@ -556,20 +565,20 @@ class LandingPageState extends State<LandingPage> {
                         children: [
                           IconButton(
                             key: ValueKey('rename_${e.path}'),
-                            tooltip: '重命名',
+                            tooltip: t('rename'),
                             icon: const Icon(Icons.edit,
                                 size: 18, color: JiajiaColors.accent),
                             onPressed: () => _renamePlan(context, e),
                           ),
                           IconButton(
                             key: ValueKey('export_${e.path}'),
-                            tooltip: '导出到文件',
+                            tooltip: t('export_to_file'),
                             icon: const Icon(Icons.save_alt,
                                 size: 18, color: JiajiaColors.accent),
                             onPressed: () => _exportPlan(context, e),
                           ),
                           IconButton(
-                            tooltip: '删除',
+                            tooltip: t('delete'),
                             icon: const Icon(Icons.delete_outline,
                                 size: 18, color: JiajiaColors.text2),
                             onPressed: () => _deletePlan(e),
@@ -589,6 +598,12 @@ class LandingPageState extends State<LandingPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // 语言开关（中 / EN）：紧凑胶囊，切换即时生效并落盘。
+                  const Align(
+                    alignment: Alignment.centerRight,
+                    child: _LangSwitch(),
+                  ),
+                  const SizedBox(height: 6),
                   Container(
                     width: 72,
                     height: 72,
@@ -612,9 +627,11 @@ class LandingPageState extends State<LandingPage> {
                     ),
                   ),
                   const SizedBox(height: 6),
-                  const Text(
-                    '画户型 · 摆家具 · 3D 浏览',
-                    style: TextStyle(fontSize: 14, color: JiajiaColors.text2),
+                  Text(
+                    t('app_tagline'),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        fontSize: 14, color: JiajiaColors.text2),
                   ),
                   const SizedBox(height: 40),
                   SizedBox(
@@ -649,9 +666,9 @@ class LandingPageState extends State<LandingPage> {
                         size: 20,
                         color: Colors.white,
                       ),
-                      label: const Text(
-                        '开始画户型',
-                        style: TextStyle(
+                      label: Text(
+                        t('cta_start'),
+                        style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
                           color: Colors.white,
@@ -679,16 +696,17 @@ class LandingPageState extends State<LandingPage> {
                         size: 20,
                         color: JiajiaColors.accent,
                       ),
-                      label: const Text('3D 浏览', style: TextStyle(fontSize: 15)),
+                      label: Text(t('cta_3d'),
+                          style: const TextStyle(fontSize: 15)),
                     ),
                   ),
                   const SizedBox(height: 36),
                   // ---------------- 我的户型 ----------------
                   Row(
                     children: [
-                      const Expanded(
-                        child: Text('我的户型',
-                            style: TextStyle(
+                      Expanded(
+                        child: Text(t('my_plans'),
+                            style: const TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w600,
                                 color: JiajiaColors.text1)),
@@ -699,9 +717,9 @@ class LandingPageState extends State<LandingPage> {
                         onPressed: () => _importPlan(context),
                         icon: const Icon(Icons.file_open,
                             size: 16, color: JiajiaColors.accent),
-                        label: const Text(
-                          '导入',
-                          style: TextStyle(
+                        label: Text(
+                          t('import'),
+                          style: const TextStyle(
                               fontSize: 12, color: JiajiaColors.text1),
                         ),
                         style: OutlinedButton.styleFrom(
@@ -724,6 +742,58 @@ class LandingPageState extends State<LandingPage> {
                 ],
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 封面语言开关：中 / EN 两枚胶囊，选中态用翡翠强调色（与主题一致）。
+/// 切换 → [languageProvider] 状态变 → JiajiaApp/LandingPage 全树重建 →
+/// [AppI18n.save] 写入 shared_preferences，重启后保持。
+class _LangSwitch extends ConsumerWidget {
+  const _LangSwitch();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cur = ref.watch(languageProvider);
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: JiajiaColors.surface,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: JiajiaColors.line),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _pill(ref, '中', AppI18n.zh, cur),
+          _pill(ref, 'EN', AppI18n.en, cur),
+        ],
+      ),
+    );
+  }
+
+  Widget _pill(WidgetRef ref, String label, String code, String cur) {
+    final on = cur == code;
+    return GestureDetector(
+      key: ValueKey('lang_$code'),
+      behavior: HitTestBehavior.opaque,
+      onTap: () => ref.read(languageProvider.notifier).set(code),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: on ? JiajiaColors.accentSoft : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: on ? JiajiaColors.accent : JiajiaColors.text2,
           ),
         ),
       ),

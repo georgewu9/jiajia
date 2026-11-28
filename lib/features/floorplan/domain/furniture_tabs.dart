@@ -10,6 +10,7 @@
 //   · 卧室/客餐厅 删掉电视柜、置物架、鞋柜、茶几、梳妆台、书桌等旧 kind tile（kind 本体保留）；
 //   · 书房/其他 原有的 kind tile 全清空，只剩新增的 42 件实模引用。
 // 同一件素材允许跨分类复用（办公椅出现在 书房 + 客餐厅，双门吊柜出现在 卧室 + 厨卫）。
+import '../../../app/i18n.dart';
 import 'floor_plan.dart';
 import 'model_items.dart';
 
@@ -77,7 +78,23 @@ class FurnitureTabs {
   const FurnitureTabs._();
 
   /// 二级分类（顺序即 chips 顺序，默认选第一个）。
+  /// 这些字符串是**数据键**（与 ModelLeaves/user 模型的 subCat 对齐），保持中文；
+  /// 显示走 [catLabel]。
   static const List<String> cats = ['卧室', '客餐厅', '书房', '厨卫', '其他'];
+
+  static const Map<String, String> _catKeys = {
+    '卧室': 'cat_bedroom',
+    '客餐厅': 'cat_living',
+    '书房': 'cat_study',
+    '厨卫': 'cat_kitchen_bath',
+    '其他': 'cat_other',
+  };
+
+  /// 二级分类显示名（按当前语言）；未知分类原样返回。
+  static String catLabel(String c) {
+    final k = _catKeys[c];
+    return k == null ? c : t(k);
+  }
 
   /// 分类 → 引用串列表。数量：6 / 12 / 4 / 19 / 10（共 51 条，44 条实模引用 + 7 条 kind）。
   static const Map<String, List<String>> items = {

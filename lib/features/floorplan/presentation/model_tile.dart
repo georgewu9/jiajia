@@ -7,6 +7,7 @@
 // 长按任意 tile = 导出单件模型 JSON（回调由各 sheet 提供）。
 import 'package:flutter/material.dart';
 
+import '../../../app/i18n.dart';
 import '../../../app/theme.dart';
 
 class ModelTile extends StatelessWidget {
@@ -132,9 +133,9 @@ class ModelTile extends StatelessWidget {
                     borderRadius: BorderRadius.circular(4),
                     border: Border.all(color: JiajiaColors.accent, width: 0.6),
                   ),
-                  child: const Text(
-                    '用户',
-                    style: TextStyle(
+                  child: Text(
+                    t('user_badge'),
+                    style: const TextStyle(
                       color: JiajiaColors.accent,
                       fontSize: 8,
                       height: 1.1,

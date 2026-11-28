@@ -12,6 +12,8 @@
 // 收进来再减面）；「直接入库」的 300KB/5000 面闸只剩 [ObjParser.gate]：
 // JSON 单件/批量导入仍走它，OBJ 流程 parse → 超闸减面 → 再过闸。
 
+import '../../../app/i18n.dart';
+
 /// 校验失败（消息可直接进 SnackBar）。
 class ObjParseException implements Exception {
   /// 面向用户的中文原因（含实际值与上限）。
@@ -88,7 +90,7 @@ class ObjParser {
   static ObjData parse(String text) {
     if (text.length > maxParseChars) {
       throw ObjParseException(
-        'OBJ 文件过大：${text.length} 字符，上限 ${maxParseChars ~/ (1024 * 1024)}MB 文本',
+        t('obj_too_large', args: [text.length, maxParseChars ~/ (1024 * 1024)]),
       );
     }
 
@@ -196,7 +198,7 @@ class ObjParser {
           faceCount++;
           if (faceCount > maxParseFaces) {
             throw ObjParseException(
-              '面数超出解析上限：$faceCount 面，上限 $maxParseFaces 面（请先在电脑上减面）',
+              t('obj_face_limit', args: [faceCount, maxParseFaces]),
             );
           }
           // 扇形三角化（与 viewer.js parseOBJ / silhouette 的 f 处理一致）
@@ -211,17 +213,17 @@ class ObjParser {
     }
 
     if (vertexCount == 0) {
-      throw const ObjParseException('OBJ 没有顶点数据（缺少 v 行）');
+      throw ObjParseException(t('obj_no_vertices'));
     }
     if (faceCount == 0) {
-      throw const ObjParseException('OBJ 没有面数据（缺少 f 行）');
+      throw ObjParseException(t('obj_no_faces'));
     }
 
     final w = maxX - minX;
     final d = maxZ - minZ;
     final h = maxY - minY;
     if (w <= 0 && d <= 0 && h <= 0) {
-      throw const ObjParseException('OBJ 包围盒为空（所有顶点重合）');
+      throw ObjParseException(t('obj_empty_bbox'));
     }
 
     // 越界索引的三角剔除（闸只数面数/顶点，不校验引用；渲染侧各自跳过）。
@@ -252,11 +254,11 @@ class ObjParser {
   /// 全量导入 / 旧条目补 bbox）。OBJ 导入流程先 [parse]，超闸再减面。
   static ObjData gate(String text) {
     if (text.length > maxChars) {
-      throw ObjParseException('OBJ 文件过大：${text.length} 字符，上限 $maxChars 字符');
+      throw ObjParseException(t('obj_too_large_chars', args: [text.length, maxChars]));
     }
     final data = parse(text);
     if (data.faceCount > maxFaces) {
-      throw ObjParseException('面数超限：${data.faceCount} 面，上限 $maxFaces 面');
+      throw ObjParseException(t('obj_face_limit_short', args: [data.faceCount, maxFaces]));
     }
     return data;
   }

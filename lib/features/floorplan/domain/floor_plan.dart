@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import '../../../app/i18n.dart';
 import 'model_assets.dart';
 
 /// 户型领域模型。单位：米。坐标为 2D 平面（y 向下为正，与画布一致）。
@@ -74,10 +75,10 @@ enum DoorType { doorway, single, double, sliding }
 
 extension DoorTypeX on DoorType {
   String get label => switch (this) {
-    DoorType.doorway => '门洞',
-    DoorType.single => '单开门',
-    DoorType.double => '双开门',
-    DoorType.sliding => '移门',
+    DoorType.doorway => t('door_type_doorway'),
+    DoorType.single => t('door_type_single'),
+    DoorType.double => t('door_type_double'),
+    DoorType.sliding => t('door_type_sliding'),
   };
 
   /// 默认宽（mm）。双开门 1500，移门 1000，其余 900。
@@ -135,11 +136,17 @@ class Opening {
     final w = toMm(width), h = toMm(height);
     if (kind == OpeningKind.window) {
       final s = toMm(sill);
-      return s > 0 ? '窗 $w×$h(台$s)' : '窗 $w×$h';
+      return s > 0
+          ? t('window_label_sill', args: [w, h, s])
+          : t('window_label', args: [w, h]);
     }
     final swings = doorType == DoorType.single || doorType == DoorType.double;
-    final swing = swings ? (outSwing ? '外开' : '内开') : '';
-    final hinge = swings ? '·${hingeLeft ? '左开' : '右开'}' : '';
+    final swing = swings
+        ? (outSwing ? t('swing_suffix_out') : t('swing_suffix_in'))
+        : '';
+    final hinge = swings
+        ? (hingeLeft ? t('hinge_suffix_left') : t('hinge_suffix_right'))
+        : '';
     return '${doorType.label} $w×$h$swing$hinge';
   }
 
@@ -362,7 +369,8 @@ class FurnitureCatalog {
       FurnitureKind.lib: '库模型',
     };
     // 防崩：新加的 kind 若漏补 label（names 缺键），`!` 会空指针崩画布。
-    return names[k] ?? k.name;
+    // 双语：词表按 kind.name 取词，缺词回退中文目录名。
+    return t('furn_${k.name}', zhText: names[k] ?? k.name);
   }
 }
 

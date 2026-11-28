@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
+import '../../../app/i18n.dart';
 import '../../../app/theme.dart';
 import '../../../diag/boot_log.dart' show bootLog;
 import '../floorplan/state/editor_doc.dart';
@@ -50,8 +51,12 @@ class _Viewer3dPageState extends ConsumerState<Viewer3dPage> {
               bootLog.error('webview-resource-error: ${err.description}'
                   ' url=${err.url}');
               if (mounted) {
-                setState(() => _status =
-                    '资源加载失败：${err.description}${err.errorType == WebResourceErrorType.fileNotFound ? '（资源缺失）' : ''}');
+                setState(() => _status = t('resource_load_failed', args: [
+                      err.description,
+                      err.errorType == WebResourceErrorType.fileNotFound
+                          ? t('resource_missing')
+                          : '',
+                    ]));
               }
             },
           ),
@@ -72,7 +77,7 @@ class _Viewer3dPageState extends ConsumerState<Viewer3dPage> {
   }
   bool _jsReady = false;
   String _mode = 'orbit';
-  String _status = '加载 3D 场景…';
+  String _status = t('loading_3d');
 
   void _onJsMessage(JavaScriptMessage msg) {
     Map<String, dynamic> j;
@@ -85,12 +90,11 @@ class _Viewer3dPageState extends ConsumerState<Viewer3dPage> {
       case 'ready':
         setState(() {
           _jsReady = true;
-          _status = '就绪 · 同步中';
+          _status = t('ready_syncing');
         });
         _pushPlan();
       case 'planLoaded':
-        setState(() => _status =
-            '已加载 ${j['walls']} 面墙 · ${j['items']} 件家具');
+        setState(() => _status = t('loaded_summary', args: [j['walls'], j['items']]));
       case 'mode':
         // JS 侧确认视角切换
         break;
@@ -138,13 +142,14 @@ class _Viewer3dPageState extends ConsumerState<Viewer3dPage> {
     // 2D 侧数据变了就同步给 3D
     ref.listen(editorDocProvider, (prev, next) => _pushPlan());
 
+    ref.watch(languageProvider); // 切语言 → 状态文案/按钮重建
     final plan = ref.watch(editorDocProvider).plan;
     // 只有本页激活时才真正创建 WebView 平台视图（避免隐藏态下建平台视图）
     final ctrl = widget.active ? _getCtrl() : null;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('3D 浏览'),
+        title: Text(t('viewer3d_title')),
         actions: [
           Text(_status,
               style: const TextStyle(fontSize: 11, color: JiajiaColors.text3)),
@@ -158,7 +163,8 @@ class _Viewer3dPageState extends ConsumerState<Viewer3dPage> {
           else
             Center(
               child: Text(
-                  '3D 引擎不可用（测试环境）\n墙 ${plan.walls.length} · 家具 ${plan.items.length}',
+                  t('engine_unavailable',
+                      args: [plan.walls.length, plan.items.length]),
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: JiajiaColors.text2)),
             ),
@@ -175,12 +181,12 @@ class _Viewer3dPageState extends ConsumerState<Viewer3dPage> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _modeChip('俯视', 'top'),
-                      _modeChip('轨道', 'orbit'),
-                      _modeChip('第一视角', 'first'),
+                      _modeChip(t('mode_top'), 'top'),
+                      _modeChip(t('mode_orbit'), 'orbit'),
+                      _modeChip(t('mode_first'), 'first'),
                       IconButton(
                         icon: const Icon(Icons.refresh, size: 20),
-                        tooltip: '同步 2D 编辑',
+                        tooltip: t('sync_2d'),
                         onPressed: _pushPlan,
                       ),
                     ],

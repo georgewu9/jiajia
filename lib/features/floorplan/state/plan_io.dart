@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 
 import '../domain/floor_plan.dart';
 import 'editor_doc.dart';
+import '../../../app/i18n.dart';
 
 /// 回写原文件的结果（编辑器保存时用）。
 enum WriteBack { synced, skaf, failed }
@@ -38,7 +39,7 @@ class PlanIo {
     required String json,
   }) {
     return FilePicker.saveFile(
-      dialogTitle: '导出户型',
+      dialogTitle: t('dlg_export_plan'),
       fileName: fileName,
       bytes: Uint8List.fromList(utf8.encode(json)),
       mimeType: 'application/json',
@@ -49,7 +50,7 @@ class PlanIo {
   /// 保留来源位置是为了「保存时回写原路径」（v0.1.33）。
   static Future<PickedJson?> pickJsonMeta() async {
     final file = await FilePicker.pickFile(
-      dialogTitle: '导入户型',
+      dialogTitle: t('dlg_import_plan'),
       type: FileType.custom,
       allowedExtensions: const ['json'],
     );
@@ -154,11 +155,11 @@ class PlanIo {
     try {
       sourcePath = (await store.loadMeta())[plan.name]?['sourcePath'];
     } catch (_) {}
-    if (sourcePath == null || sourcePath.isEmpty) return '已保存';
+    if (sourcePath == null || sourcePath.isEmpty) return t('saved');
     return switch (writeBack(Uint8List.fromList(utf8.encode(json)), sourcePath)) {
-      WriteBack.synced => '已保存并同步到原路径',
-      WriteBack.skaf => '已保存本地；外部原文件需重新导出（SAF 无持久写权限）',
-      WriteBack.failed => '已保存本地，原路径写回失败（权限？）',
+      WriteBack.synced => t('saved_synced'),
+      WriteBack.skaf => t('saved_local_saf'),
+      WriteBack.failed => t('saved_local_writeback_failed'),
     };
   }
 

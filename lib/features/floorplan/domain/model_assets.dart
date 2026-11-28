@@ -1,5 +1,7 @@
 // 由 tooling/gen_models.py 生成（原 app 内置素材模型，OBJ/MTL 见 assets/models/）。
-/// 3D 端解析：assets/web/models.js（window.JJ_MODELS，含 obj/mtl 文本）。
+// 3D 端解析：assets/web/models.js（window.JJ_MODELS，含 obj/mtl 文本）。
+import '../../../app/i18n.dart';
+
 class ModelAsset {
   final String id;
   final String category; // 门/五金/柜/栏杆/柱/墙体/基础体（原 app 分类）
@@ -7,6 +9,9 @@ class ModelAsset {
   final double w, d, h; // 2D 占地（米）+ 3D 归一化目标高
   final int color;
   const ModelAsset(this.id, this.category, this.label, this.w, this.d, this.h, this.color);
+
+  /// 显示名（词表 `asset_<id>`；缺词回退中文原名）。
+  String get displayLabel => t('asset_$id', zhText: label);
 }
 
 class ModelAssets {

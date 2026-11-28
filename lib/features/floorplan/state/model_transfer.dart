@@ -16,6 +16,7 @@ import '../domain/model_leaves.dart';
 import '../domain/model_silhouettes.dart';
 import '../domain/obj_parse.dart';
 import 'lib_models_store.dart';
+import '../../../app/i18n.dart';
 
 /// 一件可搬运的模型（单件导出 / 全量导出的公共形状，mm 尺寸）。
 class ModelTransferItem {
@@ -255,14 +256,14 @@ class ModelTransferCodec {
   static ModelTransferItem decodeSingle(String text) {
     final j = jsonDecode(text);
     if (j is! Map<String, dynamic>) {
-      throw const FormatException('不是单模型文件：顶层应为 JSON 对象');
+      throw FormatException(t('not_single_model_file'));
     }
     if (j['models'] is List) {
-      throw const FormatException('这是全量模型文件，请用「全量导入」');
+      throw FormatException(t('is_full_model_file'));
     }
     final item = ModelTransferItem.fromJsonMap(j);
     if (item == null) {
-      throw const FormatException('单模型文件缺少 id / objText');
+      throw FormatException(t('single_model_missing_fields'));
     }
     return item;
   }
@@ -313,14 +314,14 @@ class UserModelImportCodec {
   static UserModelImportPayload decode(String text) {
     final j = jsonDecode(text);
     if (j is! Map<String, dynamic>) {
-      throw const FormatException('不是用户模型全量文件：顶层应为 JSON 对象');
+      throw FormatException(t('not_user_model_file'));
     }
     if (j['type'] != UserModelExportCodec.type) {
-      throw const FormatException('不是用户模型全量文件：type 应为 userModels');
+      throw FormatException(t('bad_user_model_type'));
     }
     final raw = j['models'];
     if (raw is! List) {
-      throw const FormatException('用户模型全量文件缺少 models 数组');
+      throw FormatException(t('user_model_missing_models'));
     }
     final out = <LibModel>[];
     var invalid = 0;
