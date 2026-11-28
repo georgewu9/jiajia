@@ -1,0 +1,93 @@
+2D 俯视轮廓生成报告（tool/silhouette_gen.py）
+参数：栅格 128×128, DP ε=0.5px, 外≤80/孔≤40, 线 0..0.90, 距边<0.02 丢, 合并<0.015, 线≤16, 顶面杂乱=cand>60 或线满
+条目：76
+
+id                      faces  verts outP holes lineP  clR ystd/h  note
+1004                     4400   2292   62    0    4    0  0.160  
+1005                      186    299    4    0    0    0  0.403  无线
+1007                     4792   2448    4    0    0    0  0.298  顶面杂乱跳过(cand=80)
+1009                      580    472    4    0    6    0  0.323  
+5004                       80     42    4    0    0    0  0.288  无线
+5005                      140    220    6    0    0    0  0.303  无线
+5006                      140    220    6    0    0    0  0.303  无线
+7001                      508    796    8    0    0    0  0.385  无线
+7002                      520    814    8    0    0    0  0.382  无线
+7003                      532    832    8    0    0    0  0.379  无线
+7004                     1209   1008   76    0   10    0  0.178  
+7005                     1478   1209   39    0    0    0  0.188  顶面杂乱跳过(cand=94)
+7006                      700    704   72    0    0    0  0.435  无线
+7007                     1022    836   17    0    0    0  0.296  顶面杂乱跳过(cand=207)
+7008                     1030   1593    4    0    4    0  0.183  
+7009                      324    384    4    0    0    0  0.227  无线
+7101                      212    378    4    0    0    0  0.146  无线
+7102                      871   1709    4    0    6    0  0.163  
+7104                      727   1052    8    0    8    0  0.264  
+7105                     1340   2435   40    0    0    0  0.278  顶面杂乱跳过(cand=55,线满16)
+arcwall                   156     80   28    0    0    0  0.000  无线
+column                    124     64   21    0    0    0  0.000  无线
+cube                       12      8    4    0    0    0  0.000  无线
+m_courtyard_awning        780    572   12    0    2    0  0.199  
+m_courtyard_birch        4498   3394   66    1    0    2  0.198  bbox偏差 0.016 !! 无线
+m_courtyard_chair        7182   2580   32    1    0    1  0.144  顶面杂乱跳过(cand=173)
+m_courtyard_fountain     4500   2353   70    0    0    1  0.344  顶面杂乱跳过(cand=413)
+m_courtyard_greenhouse   5098   2001    4    0    5    0  0.353  
+m_courtyard_palm         4498   3576   70    1    0    0  0.172  顶面杂乱跳过(cand=48,线满16)
+m_courtyard_pine         4500   6650   52    0    0    0  0.197  无线
+m_courtyard_railing       504    294    4    0    0    0  0.149  无线
+m_courtyard_sassafras    5000   3925  107    1    4    3  0.216  多块外形 x2 bbox偏差 0.070 !!
+m_courtyard_table        5850   2965   20    3    0    1  0.174  顶面杂乱跳过(cand=86)
+m_courtyard_tree         4499   5496   47    0    0    1  0.148  顶面杂乱跳过(cand=26,线满16)
+m_furn_armchair          4500   2198   80    0    0    0  0.212  顶面杂乱跳过(cand=671)
+m_furn_armoire            860    492   12    0    0    0  0.307  无线
+m_furn_basin             4500   2254   53    0    0    0  0.118  顶面杂乱跳过(cand=515)
+m_furn_bed               1028    528    4    0    8    1  0.073  
+m_furn_cab_3draw         4500   2032   38    0    1    0  0.205  
+m_furn_cappa               76     42    4    0    0    0  0.423  无线
+m_furn_chest_tall         836    366    4    0    0    0  0.358  无线
+m_furn_coffee_table       656    296   28    0    0    0  0.251  无线
+m_furn_corner_cab         380    195   28    0    0    0  0.214  无线
+m_furn_desk               316    188    8    0    0    0  0.299  无线
+m_furn_dresser            612    358    4    0   12    0  0.264  
+m_furn_flowers           4500   1139   61    8    0    0  0.204  无线
+m_furn_frame_vatican      112    126    4    0    0    0  0.478  bbox偏差 0.055 !! 无线
+m_furn_frame_yosemite     112    126    4    0    0    0  0.478  bbox偏差 0.055 !! 无线
+m_furn_fridge_2           124     72   12    0    0    1  0.199  无线
+m_furn_hob               4499   2278    4    0    0    0  0.227  顶面杂乱跳过(cand=53,线满16)
+m_furn_island            4500   1994   40    0    0    0  0.297  无线
+m_furn_jacuzzi           4032   1162    4    0    0    0  0.196  无线
+m_furn_lower_cab_1d      4940   2486   44    0    1    0  0.114  
+m_furn_lower_cab_2d      4498   1972   52    0    0    0  0.117  无线
+m_furn_marble_sink       4499   1969   22    0    0    0  0.110  顶面杂乱跳过(cand=408)
+m_furn_mirror             100     68    4    0    0    0  0.453  无线
+m_furn_office_chair       321    165   67    0    0    0  0.243  无线
+m_furn_pantry             674    267   22    0    0    0  0.209  无线
+m_furn_piano              160    106    4    0    1    0  0.278  
+m_furn_piano_stool        156     94   27    0    0    0  0.224  无线
+m_furn_potplant          4506    959   50    0    0    0  0.218  无线
+m_furn_refrigerator       574    316   22    0    0    0  0.143  无线
+m_furn_shower_cabin      1401    944   85    0   12    3  0.446  多块外形 x2
+m_furn_shower_room       3622   1870   64    1    0    2  0.100  bbox偏差 0.016 !! 无线
+m_furn_shower_tray        568    298    4    0    0    0  0.158  无线
+m_furn_sofa_cherry        460    204    4    0    0    0  0.312  无线
+m_furn_sofa_cushion      4500   2208   64    0    0    0  0.220  顶面杂乱跳过(cand=718)
+m_furn_sofa_large        4500   2172   52    0    0    0  0.231  顶面杂乱跳过(cand=766)
+m_furn_stool             4498   2254   74    0    0    0  0.191  顶面杂乱跳过(cand=59,线满16)
+m_furn_table_low          288    168    4    0    0    0  0.298  无线
+m_furn_table_round       3628   1824   58    0   12    0  0.332  
+m_furn_toilet             916    636   38    0    0    0  0.291  顶面杂乱跳过(cand=160)
+m_furn_upper_cab_1d      2514   1265   20    0    0    0  0.097  无线
+m_furn_upper_cab_2d      3294   1488   24    0    0    0  0.107  无线
+m_furn_vanity             716    602    4    0   10    0  0.139  
+m_furn_washer_dryer      1216    982    8    0    0    0  0.160  顶面杂乱跳过(cand=47,线满16)
+
+顶面杂乱整件跳过（lines=[]，cand>60）：18 件
+  1007, 7005, 7007, 7105, m_courtyard_chair, m_courtyard_fountain, m_courtyard_palm, m_courtyard_table, m_courtyard_tree, m_furn_armchair, m_furn_basin, m_furn_hob, m_furn_marble_sink, m_furn_sofa_cushion, m_furn_sofa_large, m_furn_stool, m_furn_toilet, m_furn_washer_dryer
+
+bbox 自检越界（需人工看）：
+  m_courtyard_birch 误差 0.0156
+  m_courtyard_sassafras 误差 0.0703
+  m_furn_frame_vatican 误差 0.0547
+  m_furn_frame_yosemite 误差 0.0547
+  m_furn_shower_room 误差 0.0156
+
+输出文件：lib/features/floorplan/domain/model_silhouettes.dart（47423 字节）
