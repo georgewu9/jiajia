@@ -43,6 +43,42 @@ CFG = {
 }
 CAT_ORDER = ["门", "五金", "柜", "栏杆", "柱", "墙体", "基础体"]
 
+# v0.1.50：英文显示名（与 lib/app/i18n.dart 的 asset_<id> 条目逐字一致）。
+# 中文仍是数据键（n/cat，序列化/旧数据/3D 分类判断照用），英文只多出
+# n_en/cat_en 两个显示层字段 → 旧消费者（Dart AssetModel、viewer.js）不受影响。
+EN_LABELS = {
+    "1001": "White Door Panel",
+    "1003": "Black Sliding Door",
+    "1006": "Black Sliding Door B",
+    "1004": "Silver Handle",
+    "1005": "Cabinet Panel",
+    "1007": "Large Wardrobe",
+    "1009": "Modern Railing",
+    "5004": "Cabinet Block",
+    "5005": "Cabinet Body",
+    "5006": "Cabinet Body B",
+    "7001": "Hardware A",
+    "7002": "Hardware B",
+    "7003": "Hardware C",
+    "7004": "Hardware D",
+    "7005": "Hardware E",
+    "7006": "Hardware F",
+    "7007": "Hardware G",
+    "7008": "Hardware H",
+    "7009": "Hardware I",
+    "7101": "Hardware J",
+    "7102": "Hardware K",
+    "7104": "Hardware L",
+    "7105": "Hardware M",
+    "arcwall": "Arc Wall",
+    "column": "Square Column",
+    "cube": "Cube",
+}
+CAT_EN = {
+    "门": "Door", "五金": "Hardware", "柜": "Cabinet", "栏杆": "Railing",
+    "柱": "Column", "墙体": "Wall", "基础体": "Base",
+}
+
 
 def bbox_of(obj_text):
     vs = re.findall(r"^v ([\-\d.eE+]+) ([\-\d.eE+]+) ([\-\d.eE+]+)", obj_text, re.M)
@@ -83,7 +119,8 @@ def main():
         d = round(ext_z * s, 3)
         mtl_colors = parse_mtl_colors(mtl_text)
         js_entries[mid] = {
-            "n": label, "cat": cat, "w": w, "d": d, "h": round(h_t, 3),
+            "n": label, "n_en": EN_LABELS[mid], "cat": cat, "cat_en": CAT_EN[cat],
+            "w": w, "d": d, "h": round(h_t, 3),
             "c": color, "o": obj_text, "m": mtl_text,
             "mc": {k: f"0x{v:06X}" for k, v in mtl_colors.items()},
         }
@@ -101,7 +138,9 @@ def main():
     dart_path = os.path.join(ROOT, "lib", "features", "floorplan", "domain", "model_assets.dart")
     lines = [
         "// 由 tooling/gen_models.py 生成（原 app 内置素材模型，OBJ/MTL 见 assets/models/）。",
-        "/// 3D 端解析：assets/web/models.js（window.JJ_MODELS，含 obj/mtl 文本）。",
+        "// 3D 端解析：assets/web/models.js（window.JJ_MODELS，含 obj/mtl 文本）。",
+        "import '../../../app/i18n.dart';",
+        "",
         "class ModelAsset {",
         "  final String id;",
         "  final String category; // 门/五金/柜/栏杆/柱/墙体/基础体（原 app 分类）",
@@ -109,6 +148,9 @@ def main():
         "  final double w, d, h; // 2D 占地（米）+ 3D 归一化目标高",
         "  final int color;",
         "  const ModelAsset(this.id, this.category, this.label, this.w, this.d, this.h, this.color);",
+        "",
+        "  /// 显示名（词表 `asset_<id>`；缺词回退中文原名）。",
+        "  String get displayLabel => t('asset_$id', zhText: label);",
         "}",
         "",
         "class ModelAssets {",
@@ -118,7 +160,7 @@ def main():
     ]
     for mid, cat, label, w, d, h, color in dart_entries:
         lines.append(
-            f"    const ModelAsset('{mid}', '{cat}', '{label}', {w}, {d}, {h}, 0x{color:06X}),")
+            f"    ModelAsset('{mid}', '{cat}', '{label}', {w}, {d}, {h}, 0x{color:06X}),")
     lines += [
         "  ];",
         "",

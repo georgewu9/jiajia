@@ -92,6 +92,7 @@ class _Viewer3dPageState extends ConsumerState<Viewer3dPage> {
           _jsReady = true;
           _status = t('ready_syncing');
         });
+        _pushLang(); // v0.1.50：初始化先把 3D 覆盖层语言带上
         _pushPlan();
       case 'planLoaded':
         setState(() => _status = t('loaded_summary', args: [j['walls'], j['items']]));
@@ -116,8 +117,18 @@ class _Viewer3dPageState extends ConsumerState<Viewer3dPage> {
       data['libs'] = const <Map<String, dynamic>>[];
     }
     final json = jsonEncode(data);
+    // 第二参 lang：JS 侧 3D 文案/图例随语言重建（旧 viewer.js 忽略多余参数）。
     await c.runJavaScript(
-        "window.jiajia.setPlan(${_jsStringLiteral(json)})");
+        "window.jiajia.setPlan(${_jsStringLiteral(json)}, "
+        "${_jsStringLiteral(ref.read(languageProvider))})");
+  }
+
+  /// 语言切换通道：JS 侧重建提示条/滑杆名/占位盒名字贴图。
+  Future<void> _pushLang() async {
+    final c = _ctrl;
+    if (c == null || !_jsReady) return;
+    await c.runJavaScript(
+        'window.jiajia.setLang(${_jsStringLiteral(ref.read(languageProvider))})');
   }
 
   /// Dart 字符串 → JS 字符串字面量（双引号包裹 + 全量转义）。
@@ -143,6 +154,8 @@ class _Viewer3dPageState extends ConsumerState<Viewer3dPage> {
     ref.listen(editorDocProvider, (prev, next) => _pushPlan());
 
     ref.watch(languageProvider); // 切语言 → 状态文案/按钮重建
+    // 切语言 → 同步给 3D 覆盖层（viewer.js STRINGS 重建）
+    ref.listen(languageProvider, (prev, next) => _pushLang());
     final plan = ref.watch(editorDocProvider).plan;
     // 只有本页激活时才真正创建 WebView 平台视图（避免隐藏态下建平台视图）
     final ctrl = widget.active ? _getCtrl() : null;

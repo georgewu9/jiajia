@@ -4,10 +4,96 @@
  *   items:[{id,kind,x,y,rot,model?,lib?,sw?,sd?,sh?,el?,off?}],
  *   libs:[{id,n,obj,w,d,h,c}] }   // libs 只含本户型 kind=lib 引用到的库模型
  * 桥：window.dart.postMessage(JSON.stringify({type,...}))
- *     Dart 调 window.jiajia.setPlan(jsonStr) / .setMode('top'|'orbit'|'first')
+ *     Dart 调 window.jiajia.setPlan(jsonStr[, lang]) / .setMode('top'|'orbit'|'first')
+ *          / .setLang('zh'|'en')
  */
 (function () {
   'use strict';
+
+  // ---------- v0.1.50 双语字符串表（3D 覆盖层文案）----------
+  // 与 Dart 侧 lib/app/i18n.dart 同一套约定：key 小写 snake，缺词回退 zh。
+  // 只翻用户看得见的覆盖层文案（提示条 / 滑杆名 / 方向键 aria / 占位盒名字）；
+  // 数据键（kind / cat / plan.name / 库模型自定义名）保持中文，不做翻译。
+  var STRINGS = {
+    zh: {
+      "hint_wait": '等待户型数据…',
+      "hint_first": '方向键移动 · 拖动转向',
+      "hint_top": '俯视图 · 双指缩放/平移',
+      "hint_orbit": '轨道视角 · 拖动旋转',
+      "fov": '广角',
+      "eye": '人眼视角',
+      "dp_up": '前进',
+      "dp_left": '左移',
+      "dp_right": '右移',
+      "dp_down": '后退',
+      "lib_default": '库模型',
+      "model_missing": '模型缺失'
+    },
+    en: {
+      "hint_wait": 'Waiting for floor plan…',
+      "hint_first": 'D-pad to move · drag to look',
+      "hint_top": 'Top view · pinch to zoom/pan',
+      "hint_orbit": 'Orbit view · drag to rotate',
+      "fov": 'Field of view',
+      "eye": 'Eye height',
+      "dp_up": 'Forward',
+      "dp_left": 'Left',
+      "dp_right": 'Right',
+      "dp_down": 'Back',
+      "lib_default": 'Model',
+      "model_missing": 'Model missing'
+    }
+  };
+  var lang = 'zh';
+
+  /// 按当前语言取词；缺词回退 zh，再缺返回 key。
+  function t(key) {
+    var s = STRINGS[lang] && STRINGS[lang][key];
+    if (!s) s = STRINGS.zh[key];
+    return s || key;
+  }
+
+  /// models.js 条目的显示名：zh 用 n，en 优先 n_en（缺则回退中文名）。
+  function modelName(m) {
+    if (!m) return '';
+    if (lang === 'en' && m.n_en) return String(m.n_en);
+    return String(m.n || '');
+  }
+
+  /// 提示条：还没收到户型 → 等待文案；否则按当前视角取词。
+  function updateHint() {
+    var h = document.getElementById('hint');
+    if (!h) return;
+    if (!lastPlan) { h.textContent = t('hint_wait'); return; }
+    h.textContent = mode === 'first' ? t('hint_first')
+        : mode === 'top' ? t('hint_top') : t('hint_orbit');
+  }
+
+  /// 语言落地：<html lang>、滑杆名、方向键 aria-label、提示条。
+  function applyLang() {
+    document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN';
+    var fovLab = document.getElementById('fovLab');
+    var eyeLab = document.getElementById('eyeLab');
+    if (fovLab) fovLab.textContent = t('fov');
+    if (eyeLab) eyeLab.textContent = t('eye');
+    var aria = [['dp-up', 'dp_up'], ['dp-left', 'dp_left'],
+                ['dp-right', 'dp_right'], ['dp-down', 'dp_down']];
+    for (var i = 0; i < aria.length; i++) {
+      var b = document.getElementById(aria[i][0]);
+      if (b) b.setAttribute('aria-label', t(aria[i][1]));
+    }
+    updateHint();
+  }
+
+  /// Dart → JS 语言切换；标签/图例（canvas 名字贴图）随语言重建。
+  function setLang(l) {
+    var want = l === 'en' ? 'en' : 'zh';
+    if (want === lang) { applyLang(); return lang; }
+    lang = want;
+    applyLang();
+    if (lastPlan) applyPlan(JSON.stringify(lastPlan));
+    return lang;
+  }
 
   // 与 Dart FurnitureCatalog 对齐（footprint w×d 米，3D 盒高，颜色）
   var CATALOG = {
@@ -584,7 +670,7 @@
 
   // 缺库回退：占位盒上方用 canvas 纹理贴名字（不引入字体 loader）。
   function makeLabel(text) {
-    var s = String(text || '库模型');
+    var s = String(text || t('lib_default'));
     var cv = document.createElement('canvas');
     cv.width = 512; cv.height = 128;
     var g = cv.getContext('2d');
@@ -834,7 +920,7 @@
                 color: 0x8f8f8f, transparent: true, opacity: 0.55 }));
           mbox.position.y = mxh / 2;
           gmiss.add(mbox);
-          var mlbl = makeLabel('模型缺失');
+          var mlbl = makeLabel(t('model_missing'));
           mlbl.position.set(0, mxh + 0.22, 0);
           gmiss.add(mlbl);
           gmiss.position.set(i.x, (i.el || 0) + liftM, i.y);
@@ -907,7 +993,7 @@
               color: lbc, transparent: true, opacity: 0.55 }));
         pbox.position.y = lbh / 2;
         grp.add(pbox);
-        var lbl = makeLabel((lib && lib.n) || '库模型');
+        var lbl = makeLabel((lib && lib.n) || t('lib_default'));
         lbl.position.set(0, lbh + 0.22, 0);
         grp.add(lbl);
         grp.position.set(i.x, i.el || 0, i.y);
@@ -1044,6 +1130,7 @@
     doorsDbg = []; windowsDbg = []; extOpeningsDbg = []; wallSlicesDbg = [];
     var plan = JSON.parse(jsonStr);
     lastPlan = plan;
+    updateHint(); // 首次拿到户型 → 提示条从「等待」换成视角提示
     var b = boundsOf(plan);
     buildFloor(b);
     buildWalls(plan);
@@ -1070,7 +1157,15 @@
   }
 
   window.jiajia = {
-    setPlan: applyPlan,
+    // v0.1.50：setPlan(jsonStr[, lang]) —— 初始化就把语言带上，省一次往返；
+    // 第二参非字符串（旧 Dart 调用只传一个参数）时忽略，保持兼容。
+    setPlan: function (jsonStr, l) {
+      if (typeof l === 'string') setLang(l);
+      applyPlan(jsonStr);
+    },
+    // v0.1.50：语言变化时 Dart 再发一条 → 覆盖层文案/名字贴图重建。
+    setLang: setLang,
+    lang: function () { return lang; },
     // 调试探针：返回门窗实体的世界坐标（自动化验证用，无 UI 影响）
     debugOpenings: function () {
       return {
@@ -1173,7 +1268,7 @@
       Object.keys(p.groups).forEach(function (k) {
         tris += Math.floor(p.groups[k].length / 3);
       });
-      return { id: mid, chars: m.o.length, verts: p.verts.length,
+      return { id: mid, name: modelName(m), chars: m.o.length, verts: p.verts.length,
                tris: tris, mats: p.mats.length };
     },
     setMode: function (m) {
@@ -1185,9 +1280,8 @@
       document.getElementById('mini').style.display = isFirst ? 'block' : 'none';
       document.getElementById('fpanel').style.display = isFirst ? 'block' : 'none';
       document.getElementById('dpad').style.display = isFirst ? 'grid' : 'none';
-      document.getElementById('hint').textContent =
-          isFirst ? '方向键移动 · 拖动转向'
-          : m === 'top' ? '俯视图 · 双指缩放/平移' : '轨道视角 · 拖动旋转';
+      // v0.1.50：提示条文案走 STRINGS（随语言切换）
+      updateHint();
       var c = lastPlan ? centerOf(lastPlan) : new THREE.Vector3(0, 0, 0);
       if (controls) {
         controls.enabled = m !== 'first';
@@ -1430,7 +1524,7 @@
   controls.minDistance = 0.5;
   controls.maxDistance = 60;
 
-  document.getElementById('hint').textContent = '等待户型数据…';
+  applyLang(); // v0.1.50：初始化覆盖层文案（默认 zh，Dart 随后 setLang 切换）
   loop();
   post({ type: 'ready' });
 })();
