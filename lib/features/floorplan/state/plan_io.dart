@@ -136,7 +136,12 @@ class PlanIo {
       return WriteBack.failed;
     }
     try {
-      File(path).writeAsBytesSync(jsonBytes, flush: true);
+      // v0.1.51 原子写：写 <path>.tmp 再同目录 rename 覆盖。
+      // SAF 事故的教训：任何「原地截断再写」都可能被中途打断而留下
+      // 「新头 + 旧尾」的半截文件；rename 是原子替换，读到的永远是整份。
+      final tmp = File('$path.tmp');
+      tmp.writeAsBytesSync(jsonBytes, flush: true);
+      tmp.renameSync(path);
       return WriteBack.synced;
     } catch (_) {
       return WriteBack.failed;

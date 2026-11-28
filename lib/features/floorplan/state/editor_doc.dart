@@ -151,7 +151,14 @@ class PlanStore {
         }
       }
     }
-    await target.writeAsString(plan.toJsonString());
+    // v0.1.51 原子写：先写同目录 .tmp，再 rename 覆盖。
+    // 旧写法直接 writeAsString 打洞覆盖 —— 进程被杀/存储满时留下半截文件，
+    // 下次 list() 解析崩、整份户型打不开（与 SAF 事故同一类腐坏）。
+    // 同目录 rename 由文件系统保证原子（FUSE 上同样成立）；.tmp 残留可忽略。
+    final json = plan.toJsonString();
+    final tmp = File('${target.path}.tmp');
+    await tmp.writeAsString(json, flush: true);
+    await tmp.rename(target.path);
     return target.path;
   }
 

@@ -439,6 +439,48 @@ class FurnitureItem {
   };
 }
 
+/// 扫描 [s]，返回「第一个完整顶层 JSON 值」的结束下标（不含），扫不出 → null。
+///
+/// 深度扫描器：跟踪 `{}` `[]` 深度 + 字符串/转义状态，深度首次归零处即顶层值
+/// 结束位置。户型 JSON 是机器生成、字符串里不会嵌结构，浅扫描足够且 O(n)。
+/// 用途只有一个：[FloorPlan.fromJsonString] 的尾部旧数据修复，因此宁可保守：
+/// 括号不配对、顶层不是对象/数组、字符串没闭合 → 返回 null（不猜）。
+int? _topLevelValueEnd(String s) {
+  var depth = 0;
+  var started = false;
+  var inStr = false;
+  var esc = false;
+  for (var i = 0; i < s.length; i++) {
+    final c = s.codeUnitAt(i);
+    if (inStr) {
+      if (esc) {
+        esc = false;
+      } else if (c == 0x5C) {
+        // 反斜杠：下一个字符属于转义序列（如 \" 与 \\），不参与括号计数
+        esc = true;
+      } else if (c == 0x22) {
+        inStr = false;
+      }
+      continue;
+    }
+    if (c == 0x22) {
+      inStr = true;
+    } else if (c == 0x7B || c == 0x5B) {
+      // { [
+      depth++;
+      started = true;
+    } else if (c == 0x7D || c == 0x5D) {
+      // } ]
+      depth--;
+      if (depth < 0) return null; // 先遇到闭括号 → 不配对
+      if (depth == 0 && started) return i + 1;
+    } else if (!started && c > 0x20 && c != 0xFEFF) {
+      return null; // 顶层是裸字符串/数字等：尾部修复不适用
+    }
+  }
+  return null;
+}
+
 /// 户型图：墙 + 开洞 + 家具。
 class FloorPlan {
   String name = '新建户型';
@@ -462,8 +504,34 @@ class FloorPlan {
   String toJsonString() => jsonEncode(toJson());
 
   /// 仅编辑器内部用：从 JSON 恢复（drift 持久化 M4 再换结构化表）。
-  static FloorPlan fromJsonString(String s) {
-    final j = jsonDecode(s) as Map<String, dynamic>;
+  ///
+  /// v0.1.51 容错：严格解码失败时，若「第一个顶层对象已闭合、后面还挂着旧数据」，
+  /// 截断尾部重试一次。现场：MIUI DocumentsUI 对同名已存在的 SAF 文件重新
+  /// `saveFile` 不截断 —— 短的新内容写进头部、旧的长文档尾巴留在后面，
+  /// 于是 `jsonDecode` 在 8291 处抛 `Extra data`，整份户型导不进来。
+  ///
+  /// [onRepaired] 在「确实截断后解析成功」时被调用，参数为丢掉的字符数；
+  /// 调用方据此提示用户 + 写诊断日志。合法文件走 jsonDecode 快路径，
+  /// 完全不碰扫描器 —— 行为与旧版逐字节一致。
+  static FloorPlan fromJsonString(
+    String s, {
+    void Function(int droppedChars)? onRepaired,
+  }) {
+    late final Map<String, dynamic> j;
+    try {
+      j = jsonDecode(s) as Map<String, dynamic>;
+    } on FormatException catch (e) {
+      final cut = _topLevelValueEnd(s);
+      // cut == null：括号不配对 / 顶层不是对象 → 真损坏，不猜；
+      // cut >= s.length：整份本来就是完整对象，异常出在内容里 → 不截。
+      if (cut == null || cut >= s.length) rethrow;
+      try {
+        j = jsonDecode(s.substring(0, cut)) as Map<String, dynamic>;
+      } on FormatException {
+        throw e; // 修不动 → 抛原始异常（offset 更贴近用户文件里的位置）
+      }
+      onRepaired?.call(s.length - cut);
+    }
     final p = FloorPlan()..name = (j['name'] as String?) ?? '户型';
     for (final w
         in (j['walls'] as List<dynamic>).cast<Map<String, dynamic>>()) {

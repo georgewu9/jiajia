@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io' show File;
+import 'dart:io' show File, FileSystemException;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -439,18 +439,29 @@ class LandingPageState extends ConsumerState<LandingPage> {
   }
 
   /// 从外部目录导入户型：解析 → 存回私有 plans/（重名自动加后缀）→ 刷新列表。
-  /// 不是合法户型 JSON → 统一提示导入失败。
+  ///
+  /// v0.1.51：失败不再一律「不是有效户型」，按阶段 + 异常类型给出可读原因；
+  /// 尾部旧数据被自动修复时在提示里点明，并写一行诊断日志方便下次取证。
   Future<void> _importPlan(BuildContext context) async {
+    // 同一异常在不同阶段含义不同（utf8 解码失败 ≠ JSON 语法失败）。
+    var stage = 'pick';
+    PickedJson? picked;
     try {
-      final picked = await PlanIo.pickJsonMeta();
+      picked = await PlanIo.pickJsonMeta();
       if (picked == null) return; // 用户取消
-      final plan = FloorPlan.fromJsonString(picked.text);
+      stage = 'parse';
+      var repairedChars = 0;
+      final plan = FloorPlan.fromJsonString(
+        picked.text,
+        onRepaired: (n) => repairedChars = n,
+      );
       // v0.1.33：列表/SnackBar 显示「导入的文件名」（剥 .json 后缀），不是 JSON 里的旧 name
       var fname = picked.fileName ?? plan.name;
       if (fname.toLowerCase().endsWith('.json')) {
         fname = fname.substring(0, fname.length - 5);
       }
       plan.name = _uniqueImportName(fname);
+      stage = 'save';
       await _store.save(plan);
       // 记来源路径：编辑器保存时可回写原文件
       try {
@@ -463,14 +474,44 @@ class LandingPageState extends ConsumerState<LandingPage> {
         await _store.saveMeta(meta);
       } catch (_) {}
       await _refresh();
+      if (repairedChars > 0) {
+        // 留痕：下次「我的文件为什么只有一半」能从启动日志里看到丢了多少字符。
+        bootLog.line('plan-import: tail-repair dropped $repairedChars chars '
+            '(file=${picked.fileName ?? '-'}, len=${picked.text.length}, '
+            'source=${picked.sourcePath})');
+      }
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(t('imported_named', args: [plan.name]))));
-    } catch (_) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(repairedChars > 0
+            ? t('imported_named_repaired', args: [plan.name, repairedChars])
+            : t('imported_named', args: [plan.name])),
+      ));
+    } catch (e) {
+      // 现场取证：阶段 + 异常类型 + 文件名 + 字节长度（不打印全文，避免日志爆掉）。
+      bootLog.error('plan-import($stage): ${e.runtimeType}: $e '
+          '(file=${picked?.fileName ?? '-'}, len=${picked?.text.length ?? 0})');
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(t('import_failed_invalid'))));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+            t('import_failed_reason', args: [_importFailReason(stage, e)])),
+      ));
     }
+  }
+
+  /// 导入失败 → 用户能看懂的原因（阶段 + 异常类型，最小可用版本）。
+  String _importFailReason(String stage, Object e) {
+    if (e is FormatException && stage == 'pick') {
+      return t('import_fail_encoding'); // utf8.decode 失败：不是 UTF-8 文本
+    }
+    if (e is FormatException) {
+      final off = e.offset;
+      return off == null
+          ? t('import_fail_json')
+          : t('import_fail_json_at', args: [off + 1]); // 给人看的 1 基位置
+    }
+    if (e is TypeError) return t('import_fail_structure');
+    if (e is FileSystemException) return t('import_fail_io');
+    return t('import_fail_unknown');
   }
 
   /// 重命名已存户型（v0.1.33）：对话框可改「新建户型」这类默认名。

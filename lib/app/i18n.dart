@@ -150,6 +150,28 @@ const Map<String, L10nEntry> kStrings = {
     zh: '导入失败：文件不是有效户型',
     en: 'Import failed: the file is not a valid plan',
   ),
+  // v0.1.51：导入失败带具体原因（阶段 + 异常类型），不再一律「不是有效户型」。
+  // 外层文案复用已有的 import_failed_reason（'导入失败：{0}'）。
+  'import_fail_json': (zh: 'JSON 解析失败', en: 'JSON parse error'),
+  'import_fail_json_at': (
+    zh: 'JSON 解析失败（位置 {0}）',
+    en: 'JSON parse error (position {0})',
+  ),
+  'import_fail_encoding': (
+    zh: '文件不是 UTF-8 文本',
+    en: 'the file is not UTF-8 text',
+  ),
+  'import_fail_structure': (
+    zh: '文件结构不是有效户型（字段缺失或类型不符）',
+    en: 'the file is not a plan structure (missing field or wrong type)',
+  ),
+  'import_fail_io': (zh: '读写文件失败', en: 'file read/write error'),
+  'import_fail_unknown': (zh: '原因未知', en: 'unknown reason'),
+  // 尾部旧数据被自动截断修复（MIUI SAF 不截断覆盖的现场）
+  'imported_named_repaired': (
+    zh: '已导入 {0}（文件尾部含旧数据，已自动修复，丢弃 {1} 字符）',
+    en: 'Imported {0} (stale tail data trimmed automatically, {1} chars dropped)',
+  ),
   'rename_plan_title': (zh: '重命名户型', en: 'Rename Plan'),
   'plan_name_label': (zh: '户型名', en: 'Plan name'),
   'renamed': (zh: '已重命名', en: 'Renamed'),
