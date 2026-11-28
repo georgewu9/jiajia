@@ -159,14 +159,25 @@ class _Viewer3dPageState extends ConsumerState<Viewer3dPage> {
     final plan = ref.watch(editorDocProvider).plan;
     // 只有本页激活时才真正创建 WebView 平台视图（避免隐藏态下建平台视图）
     final ctrl = widget.active ? _getCtrl() : null;
+    // 横屏可视高度矮：顶栏压到 36、底部视角条内边距收紧，把空间还给 3D 画布。
+    // 竖屏保持原有尺寸（toolbarHeight/style 传 null = 走主题默认），不引入回归。
+    final compact = MediaQuery.orientationOf(context) == Orientation.landscape;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(t('viewer3d_title')),
+        toolbarHeight: compact ? 36 : null,
+        titleSpacing: compact ? 12 : null,
+        // 36 高的 toolbar 里 24px 图标会被压扁 → 横屏统一 20px（8+20+8=36）
+        iconTheme: compact ? const IconThemeData(size: 20) : null,
+        title: Text(
+          t('viewer3d_title'),
+          style: compact ? const TextStyle(fontSize: 13, letterSpacing: 1) : null,
+        ),
         actions: [
           Text(_status,
-              style: const TextStyle(fontSize: 11, color: JiajiaColors.text3)),
-          const SizedBox(width: 12),
+              style: TextStyle(
+                  fontSize: compact ? 10 : 11, color: JiajiaColors.text3)),
+          SizedBox(width: compact ? 8 : 12),
         ],
       ),
       body: Stack(
@@ -186,17 +197,19 @@ class _Viewer3dPageState extends ConsumerState<Viewer3dPage> {
             right: 0,
             bottom: 0,
             child: Container(
+              key: const Key('viewer3d_mode_bar'),
               color: JiajiaColors.surface,
               child: SafeArea(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 8),
+                  padding: EdgeInsets.symmetric(
+                      horizontal: compact ? 12 : 16,
+                      vertical: compact ? 4 : 8),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _modeChip(t('mode_top'), 'top'),
-                      _modeChip(t('mode_orbit'), 'orbit'),
-                      _modeChip(t('mode_first'), 'first'),
+                      _modeChip(t('mode_top'), 'top', compact: compact),
+                      _modeChip(t('mode_orbit'), 'orbit', compact: compact),
+                      _modeChip(t('mode_first'), 'first', compact: compact),
                       IconButton(
                         icon: const Icon(Icons.refresh, size: 20),
                         tooltip: t('sync_2d'),
@@ -213,7 +226,7 @@ class _Viewer3dPageState extends ConsumerState<Viewer3dPage> {
     );
   }
 
-  Widget _modeChip(String label, String m) {
+  Widget _modeChip(String label, String m, {bool compact = false}) {
     final active = _mode == m;
     return ActionChip(
       label: Text(label),
@@ -222,7 +235,7 @@ class _Viewer3dPageState extends ConsumerState<Viewer3dPage> {
           color: active ? JiajiaColors.accent : JiajiaColors.line),
       labelStyle: TextStyle(
           color: active ? JiajiaColors.accent : JiajiaColors.text1,
-          fontSize: 13),
+          fontSize: compact ? 12 : 13),
       onPressed: () => _setMode(m),
     );
   }
